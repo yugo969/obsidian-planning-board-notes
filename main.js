@@ -296,9 +296,11 @@ class PlanningBoardView extends ItemView {
     STATUSES.forEach((status) => this.filterButton(filters, status, this.activeStatuses.has(status), "status", status));
     const archive = filters.createEl("button", {
       cls: `action-type-filter action-archive-filter${this.showArchivedGroups ? " is-active" : ""}`,
-      text: this.showArchivedGroups ? "通常表示" : "アーカイブ",
       attr: { "aria-pressed": String(this.showArchivedGroups), "data-archive-filter": "true" },
     });
+    const archiveIcon = archive.createSpan({ cls: "archive-filter-icon", attr: { "aria-hidden": "true" } });
+    setIcon(archiveIcon, "archive");
+    archive.createSpan({ text: this.showArchivedGroups ? "通常表示" : "アーカイブ" });
     archive.addEventListener("click", () => {
       this.clearTaskArchiveSelection();
       this.showArchivedGroups = !this.showArchivedGroups;

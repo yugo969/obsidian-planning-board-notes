@@ -52,6 +52,13 @@
   color: var(--text-normal);
 }
 
+.action-type-filter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
 .action-type-filter.is-active,
 .action-type-filter:hover,
 .action-type-filter:focus-visible,
@@ -75,12 +82,19 @@
 
 .group-collapse-icon,
 .group-collapse-icon svg {
+  display: block;
   width: 17px;
   height: 17px;
 }
 
 .action-archive-filter {
   margin-left: 12px;
+}
+
+.archive-filter-icon,
+.archive-filter-icon svg {
+  width: 15px;
+  height: 15px;
 }
 
 .action-board-view {
@@ -463,13 +477,75 @@
     padding: 12px;
   }
 
-  .planning-board-header,
-  .deadline-group-head {
+  .planning-board-header {
     display: grid;
   }
 
+  .deadline-group {
+    overflow: visible;
+  }
+
+  .action-deadline-view {
+    overflow: visible;
+  }
+
+  .deadline-group-head {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: -14px -14px 12px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--board-border);
+    border-radius: 8px 8px 6px 6px;
+    background: var(--background-secondary);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.08);
+  }
+
+  .deadline-group-head > div:first-child {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .deadline-group-head .mini-label {
+    flex: 0 0 auto;
+    margin: 0;
+  }
+
+  .deadline-group h3 {
+    display: block;
+    max-width: 100%;
+    min-width: 0;
+    margin: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
   .deadline-head-meta {
-    justify-content: flex-start;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 7px;
+    margin-left: auto;
+  }
+
+  .deadline-group-head .progress-track {
+    display: none;
+  }
+
+  .deadline-group-head .progress-count {
+    border-radius: 999px;
+    background: var(--background-primary);
+    padding: 4px 7px;
+    white-space: nowrap;
   }
 
   .deadline-task-grid {
