@@ -705,7 +705,7 @@ class PlanningBoardView extends ItemView {
     const calendarTask = event.target.closest?.("[data-calendar-task]");
     if (calendarTask) {
       const file = this.app.vault.getAbstractFileByPath(calendarTask.dataset.calendarTask);
-      if (file) new TaskDetailModal(this.app, file).open();
+      if (file) new TaskCardModal(this.app, this, file.path).open();
       return;
     }
     const taskOpen = event.target.closest?.("[data-task-open]");
@@ -772,11 +772,6 @@ class TaskDetailModal extends Modal {
   async onOpen() {
     const { contentEl } = this;
     contentEl.addClass("pbn-modal", "pbn-task-detail-modal");
-    contentEl.createEl("button", {
-      cls: "pbn-modal-close",
-      text: "×",
-      attr: { type: "button", "aria-label": "閉じる" },
-    }).addEventListener("click", () => this.close());
     const fm = getFrontmatter(this.app, this.file);
     contentEl.createEl("h2", { text: safeValue(fm.title || this.file.basename) });
     const meta = contentEl.createDiv({ cls: "pbn-modal-meta" });
@@ -786,6 +781,91 @@ class TaskDetailModal extends Modal {
     const content = stripFrontmatter(await this.app.vault.read(this.file));
     const renderTarget = contentEl.createDiv({ cls: "pbn-modal-body markdown-rendered" });
     await MarkdownRenderer.render(this.app, content || safeValue(fm.summary), renderTarget, this.file.path, this);
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+class TaskCardModal extends Modal {
+  constructor(app, view, filePath) {
+    super(app);
+    this.view = view;
+    this.filePath = filePath;
+  }
+
+  async onOpen() {
+    const { contentEl } = this;
+    contentEl.addClass("pbn-modal", "pbn-task-card-modal");
+    contentEl.addEventListener("change", (event) => this.handleChange(event));
+    contentEl.addEventListener("click", (event) => this.handleClick(event));
+    this.renderContent();
+  }
+
+  findGroupAndTask() {
+    const { groups, tasks } = this.view.loadModels();
+    const visibleGroups = this.view
+      .visibleGroupModels(groups, tasks)
+      .map((group) => ({ ...group, tasks: this.view.filterTasks(group.tasks) }))
+      .filter((group) => group.tasks.length > 0);
+    for (const group of visibleGroups) {
+      const task = group.tasks.find((item) => item.file.path === this.filePath);
+      if (task) return { group, task };
+    }
+    const fallback = tasks.find((task) => task.file.path === this.filePath);
+    return { group: null, task: fallback || null };
+  }
+
+  renderContent() {
+    const { group, task } = this.findGroupAndTask();
+    this.contentEl.empty();
+    this.contentEl.addClass("pbn-modal", "pbn-task-card-modal");
+    if (!task) {
+      this.contentEl.createEl("h2", { text: "タスクが見つかりません" });
+      return;
+    }
+    const relatedTasks = group?.tasks?.filter((item) => item.file.path !== task.file.path) || [];
+    const head = this.contentEl.createDiv({ cls: "pbn-modal-category-head" });
+    head.createSpan({ cls: "mini-label", text: group?.window || task.groupWindow || "時期未定" });
+    head.createEl("h2", { text: group?.title || task.groupTitle || task.group || "未分類" });
+    if (group?.note) head.createEl("p", { text: group.note });
+    const body = this.contentEl.createDiv({ cls: "pbn-modal-task-body" });
+    const focus = body.createDiv({ cls: "pbn-modal-task-focus" });
+    focus.innerHTML = this.view.taskCard(task);
+    if (relatedTasks.length > 0) {
+      const details = body.createEl("details", { cls: "pbn-modal-related-tasks" });
+      details.createEl("summary", { text: "カテゴリの他タスクを見る" });
+      const grid = details.createDiv({ cls: "deadline-task-grid" });
+      grid.innerHTML = relatedTasks.map((item) => this.view.taskCard(item)).join("");
+    }
+  }
+
+  async handleChange(event) {
+    const checkbox = event.target.closest?.("[data-task-complete]");
+    if (!checkbox) return;
+    const card = checkbox.closest("[data-task-file]");
+    const file = this.app.vault.getAbstractFileByPath(card?.dataset.taskFile || "");
+    if (!file) return;
+    const status = checkbox.checked ? "完了" : "未着手";
+    await this.view.updateFrontmatter(file, { status });
+    this.filePath = file.path;
+    await this.view.render();
+    this.renderContent();
+  }
+
+  handleClick(event) {
+    const detail = event.target.closest?.("[data-task-detail]");
+    if (detail) {
+      const file = this.app.vault.getAbstractFileByPath(detail.dataset.taskDetail);
+      if (file) new TaskDetailModal(this.app, file).open();
+      return;
+    }
+    const open = event.target.closest?.("[data-task-open]");
+    if (open) {
+      const file = this.app.vault.getAbstractFileByPath(open.dataset.taskOpen);
+      if (file) this.app.workspace.getLeaf("tab").openFile(file);
+    }
   }
 
   onClose() {

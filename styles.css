@@ -391,6 +391,12 @@
   border-left-color: var(--board-good);
 }
 
+.action-task-card.is-complete .action-complete-control strong {
+  color: var(--board-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
 .action-task-card.is-archive-selectable {
   cursor: pointer;
 }
@@ -697,27 +703,49 @@
   overflow: auto;
 }
 
-.pbn-modal-close {
-  position: absolute;
-  top: 0;
-  right: 0;
+.pbn-modal-category-head {
   display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border: 1px solid var(--board-border);
-  border-radius: 999px;
-  background: var(--background-primary);
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 22px;
-  line-height: 1;
+  gap: 6px;
+  margin-bottom: 14px;
 }
 
-.pbn-modal-close:hover,
-.pbn-modal-close:focus-visible {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
+.pbn-modal-category-head h2 {
+  margin: 0;
+}
+
+.pbn-modal-category-head p {
+  margin: 0;
+  color: var(--board-muted);
+  line-height: 1.55;
+}
+
+.pbn-modal-task-body {
+  display: grid;
+  gap: 14px;
+}
+
+.pbn-modal-task-focus .action-task-card {
+  min-height: 0;
+}
+
+.pbn-modal-related-tasks {
+  border-top: 1px solid var(--board-border);
+  padding-top: 10px;
+}
+
+.pbn-modal-related-tasks summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--board-accent);
+  font-weight: 700;
+  line-height: 1.4;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--board-accent) 40%, transparent);
+  text-underline-offset: 4px;
+}
+
+.pbn-modal-related-tasks .deadline-task-grid {
+  margin-top: 12px;
 }
 
 @container planning-board-notes (max-width: 760px) {
@@ -871,17 +899,20 @@
 }
 
 @media (max-width: 760px) {
-  .modal:has(.pbn-task-detail-modal) {
+  .modal:has(.pbn-task-detail-modal),
+  .modal:has(.pbn-task-card-modal) {
     width: calc(100vw - 16px);
     max-width: calc(100vw - 16px);
     max-height: calc(100dvh - 16px);
   }
 
-  .pbn-task-detail-modal {
+  .pbn-task-detail-modal,
+  .pbn-task-card-modal {
     min-height: min(720px, calc(100dvh - 16px));
   }
 
-  .pbn-task-detail-modal .pbn-modal-body {
+  .pbn-task-detail-modal .pbn-modal-body,
+  .pbn-task-card-modal .pbn-modal-body {
     max-height: calc(100dvh - 220px);
   }
 }
