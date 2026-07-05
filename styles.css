@@ -503,7 +503,8 @@
     align-items: center;
     gap: 8px;
     max-width: 100%;
-    margin: 0 0 12px;
+    width: calc(100% + 28px);
+    margin: -14px -14px 12px;
     padding: 10px 12px;
     border-bottom: 1px solid var(--board-border);
     border-radius: 8px 8px 6px 6px;
