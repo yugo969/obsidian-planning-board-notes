@@ -4,6 +4,7 @@ const {
   Modal,
   Notice,
   Plugin,
+  setIcon,
   TFile,
 } = require("obsidian");
 
@@ -374,6 +375,13 @@ class PlanningBoardView extends ItemView {
     board.innerHTML = groups.length
       ? groups.map((group) => this.groupHtml(group)).join("")
       : `<div class="action-empty-state">${this.showArchivedGroups ? "アーカイブ済みの項目はありません。" : "選択した種別のタスクはありません。"}</div>`;
+    this.renderIcons(board);
+  }
+
+  renderIcons(root) {
+    root.querySelectorAll("[data-collapse-icon]").forEach((icon) => {
+      setIcon(icon, icon.dataset.collapseIcon);
+    });
   }
 
   groupHtml(group) {
@@ -390,7 +398,9 @@ class PlanningBoardView extends ItemView {
           <div class="deadline-head-meta">
             ${this.progressSummary(group.tasks, group.title)}
             ${this.groupArchiveButton(group)}
-            <button class="group-collapse-toggle" type="button" data-group-collapse aria-expanded="${!collapsed}" aria-label="${group.title}のタスク一覧を${collapsed ? "表示" : "非表示"}">${collapsed ? "+" : "-"}</button>
+            <button class="group-collapse-toggle" type="button" data-group-collapse aria-expanded="${!collapsed}" aria-label="${group.title}のタスク一覧を${collapsed ? "表示" : "非表示"}">
+              <span class="group-collapse-icon" data-collapse-icon="${collapsed ? "chevron-down" : "chevron-up"}" aria-hidden="true"></span>
+            </button>
           </div>
         </div>
         <p>${group.note || ""} ${group.file ? `<button class="group-memo-button" type="button" data-group-file="${group.file.path}">${group.memoLabel || "メモ"}</button>` : ""}</p>
