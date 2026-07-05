@@ -497,7 +497,7 @@ class PlanningBoardView extends ItemView {
             </div>
             <div class="calendar-day-items">
               ${dayTasks
-                .map((task) => `<span class="calendar-task-pill action-type-${typeClass(task.type)}${this.isTaskComplete(task) ? " is-complete" : ""}" title="${task.title}">${task.title}</span>`)
+                .map((task) => `<button class="calendar-task-pill action-type-${typeClass(task.type)}${this.isTaskComplete(task) ? " is-complete" : ""}" type="button" data-calendar-task="${task.file.path}" title="${task.title}">${task.title}</button>`)
                 .join("")}
             </div>
           </article>
@@ -702,6 +702,12 @@ class PlanningBoardView extends ItemView {
       if (file) new TaskDetailModal(this.app, file).open();
       return;
     }
+    const calendarTask = event.target.closest?.("[data-calendar-task]");
+    if (calendarTask) {
+      const file = this.app.vault.getAbstractFileByPath(calendarTask.dataset.calendarTask);
+      if (file) new TaskDetailModal(this.app, file).open();
+      return;
+    }
     const taskOpen = event.target.closest?.("[data-task-open]");
     if (taskOpen) {
       const file = this.app.vault.getAbstractFileByPath(taskOpen.dataset.taskOpen);
@@ -765,7 +771,12 @@ class TaskDetailModal extends Modal {
 
   async onOpen() {
     const { contentEl } = this;
-    contentEl.addClass("pbn-modal");
+    contentEl.addClass("pbn-modal", "pbn-task-detail-modal");
+    contentEl.createEl("button", {
+      cls: "pbn-modal-close",
+      text: "×",
+      attr: { type: "button", "aria-label": "閉じる" },
+    }).addEventListener("click", () => this.close());
     const fm = getFrontmatter(this.app, this.file);
     contentEl.createEl("h2", { text: safeValue(fm.title || this.file.basename) });
     const meta = contentEl.createDiv({ cls: "pbn-modal-meta" });
