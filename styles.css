@@ -33,6 +33,78 @@
   color: var(--board-muted);
 }
 
+.action-view-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.action-view-button {
+  border: 1px solid var(--board-border);
+  border-radius: 999px;
+  min-height: 34px;
+  padding: 6px 12px;
+  font-size: 12px;
+  background: var(--background-primary);
+  color: var(--text-muted);
+}
+
+.action-view-button.is-active {
+  border-color: var(--board-accent);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.today-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 12px;
+  border: 1px solid var(--board-border);
+  border-left: 4px solid var(--board-accent);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  color: var(--board-muted);
+  padding: 10px 12px;
+}
+
+.today-context strong {
+  color: var(--text-normal);
+}
+
+.today-context-label,
+.today-context-meta span,
+.calendar-today-label {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.today-context-label {
+  margin-right: 8px;
+  padding: 4px 7px;
+  background: var(--background-primary);
+  color: var(--board-accent);
+}
+
+.today-context-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.today-context-meta span {
+  padding: 4px 7px;
+  background: var(--background-primary);
+  color: var(--board-muted);
+}
+
 .action-type-filter-list {
   display: flex;
   flex-wrap: wrap;
@@ -113,11 +185,21 @@
   padding: 14px;
 }
 
+.calendar-panel,
+.week-lane {
+  border: 1px solid var(--board-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  padding: 14px;
+}
+
 .deadline-group.is-archived {
   opacity: 0.78;
 }
 
-.deadline-group-head {
+.deadline-group-head,
+.calendar-head,
+.week-lane-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -125,7 +207,8 @@
   margin-bottom: 10px;
 }
 
-.deadline-group h3 {
+.deadline-group h3,
+.calendar-head h3 {
   margin: 2px 0 0;
   font-size: 17px;
   letter-spacing: 0;
@@ -150,6 +233,15 @@
 }
 
 .deadline-head-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.calendar-head-meta,
+.week-lane-meta {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -281,6 +373,14 @@
   border-radius: 8px;
   padding: 11px;
   background: var(--board-card);
+}
+
+.action-task-card.is-due-today {
+  border-color: var(--board-accent);
+}
+
+.action-task-card.is-overdue:not(.is-complete) {
+  border-left-color: var(--board-warn);
 }
 
 .action-task-card.is-complete {
@@ -446,6 +546,88 @@
   color: var(--board-warn);
 }
 
+.action-task-top time.today-date {
+  color: var(--board-accent);
+}
+
+.calendar-weekdays,
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.calendar-weekdays {
+  margin-bottom: 8px;
+  color: var(--board-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.calendar-day {
+  min-width: 0;
+  min-height: 128px;
+  border: 1px solid var(--board-border);
+  border-radius: 8px;
+  background: var(--background-primary);
+  padding: 8px;
+}
+
+.calendar-day.is-empty {
+  opacity: 0.35;
+  background: transparent;
+}
+
+.calendar-day.is-today {
+  border-color: var(--board-accent);
+  box-shadow: inset 0 0 0 1px var(--board-accent);
+}
+
+.calendar-day-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.calendar-today-label {
+  padding: 3px 6px;
+  background: var(--background-secondary);
+  color: var(--board-accent);
+}
+
+.calendar-day-items {
+  display: grid;
+  gap: 5px;
+}
+
+.calendar-task-pill {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 7px;
+  padding: 4px 6px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: 11px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-task-pill.is-complete {
+  opacity: 0.62;
+  text-decoration: line-through;
+}
+
+.week-lane-stack {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
 .action-empty-state {
   border: 1px dashed var(--board-border);
   border-radius: 8px;
@@ -485,6 +667,12 @@
 
   .planning-board-header {
     display: grid;
+  }
+
+  .calendar-head,
+  .week-lane-head {
+    display: grid;
+    gap: 8px;
   }
 
   .deadline-group {
@@ -562,6 +750,55 @@
   }
 
   .deadline-task-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .calendar-weekdays,
+  .calendar-grid {
+    gap: 3px;
+  }
+
+  .calendar-weekdays {
+    display: grid;
+    font-size: 10px;
+  }
+
+  .calendar-day {
+    min-height: 62px;
+    border-radius: 6px;
+    padding: 4px;
+  }
+
+  .calendar-day.is-empty {
+    border-color: transparent;
+  }
+
+  .calendar-day-head {
+    gap: 2px;
+    margin-bottom: 3px;
+  }
+
+  .calendar-day-head strong {
+    font-size: 11px;
+  }
+
+  .calendar-today-label {
+    padding: 2px 4px;
+    font-size: 9px;
+  }
+
+  .calendar-day-items {
+    gap: 3px;
+  }
+
+  .calendar-task-pill {
+    padding: 2px 3px;
+    border-radius: 4px;
+    font-size: 9px;
+    line-height: 1.2;
+  }
+
+  .week-lane-stack {
     grid-template-columns: 1fr;
   }
 }

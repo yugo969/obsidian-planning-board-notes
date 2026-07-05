@@ -59,6 +59,36 @@ function dueTime(value) {
   return Number.isNaN(time) ? Number.POSITIVE_INFINITY : time;
 }
 
+function todayIso() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset() * 60000;
+  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+}
+
+function formatDateJa(value) {
+  if (!isIsoDate(value)) return value || "期限未定";
+  const date = new Date(`${value}T00:00:00`);
+  const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日（${weekdays[date.getDay()]}）`;
+}
+
+function addDays(value, days) {
+  const date = new Date(`${value}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function startOfWeek(value) {
+  const date = new Date(`${value}T00:00:00`);
+  const day = (date.getDay() + 6) % 7;
+  date.setDate(date.getDate() - day);
+  return date.toISOString().slice(0, 10);
+}
+
+function monthKeyFromTask(task) {
+  return isIsoDate(task.due) ? task.due.slice(0, 7) : "";
+}
+
 function stripFrontmatter(content) {
   return content.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
 }
@@ -114,6 +144,7 @@ class PlanningBoardView extends ItemView {
     this.taskArchiveSelectionGroupKey = null;
     this.taskArchiveSelectionMode = null;
     this.selectedTaskArchiveKeys = new Set();
+    this.currentView = "deadline";
   }
 
   getViewType() {
@@ -141,12 +172,21 @@ class PlanningBoardView extends ItemView {
     root.empty();
     root.addClass("planning-board-notes");
     const { groups, tasks } = this.loadModels();
-    const visibleGroups = this.visibleGroupModels(groups, tasks)
+    const unfilteredGroups = this.visibleGroupModels(groups, tasks);
+    const filteredGroups = unfilteredGroups
       .map((group) => ({ ...group, tasks: this.filterTasks(group.tasks) }))
       .filter((group) => group.tasks.length > 0);
-    const visibleTasks = visibleGroups.flatMap((group) => group.tasks);
+    const unfilteredTasks = unfilteredGroups.flatMap((group) => group.tasks);
+    const visibleTasks = filteredGroups.flatMap((group) => group.tasks);
     this.renderHeader(root, tasks, visibleTasks);
-    this.renderDeadline(root, visibleGroups);
+    this.renderTodayContext(root, unfilteredTasks);
+    if (this.currentView === "month") {
+      this.renderMonth(root, visibleTasks);
+    } else if (this.currentView === "week") {
+      this.renderWeek(root, visibleTasks);
+    } else {
+      this.renderDeadline(root, filteredGroups);
+    }
   }
 
   loadModels() {
@@ -215,6 +255,14 @@ class PlanningBoardView extends ItemView {
 
   isTaskComplete(task) {
     return this.displayStatus(task) === "完了";
+  }
+
+  isDueToday(task) {
+    return task.due === todayIso();
+  }
+
+  isOverdue(task) {
+    return isIsoDate(task.due) && task.due < todayIso() && !this.isTaskComplete(task);
   }
 
   filterTasks(tasks) {
@@ -291,6 +339,24 @@ class PlanningBoardView extends ItemView {
         ? `アーカイブ ${visibleTasks.length}件を表示、完了 ${done}件`
         : `${visibleTasks.length}/${tasks.length}件を表示、表示中の完了 ${done}件`,
     });
+    const views = root.createDiv({ cls: "action-view-tabs", attr: { role: "tablist", "aria-label": "表示切替" } });
+    [
+      ["deadline", "期限カード"],
+      ["month", "月表示"],
+      ["week", "週表示"],
+    ].forEach(([view, label]) => {
+      const active = this.currentView === view;
+      const button = views.createEl("button", {
+        cls: `action-view-button${active ? " is-active" : ""}`,
+        text: label,
+        attr: { type: "button", role: "tab", "aria-selected": String(active) },
+      });
+      button.addEventListener("click", () => {
+        this.currentView = view;
+        this.clearTaskArchiveSelection();
+        this.render();
+      });
+    });
     const filters = root.createDiv({ cls: "action-type-filter-list" });
     TYPES.forEach((type) => this.filterButton(filters, typeLabel(type), this.activeTypes.has(type), "type", type));
     STATUSES.forEach((status) => this.filterButton(filters, status, this.activeStatuses.has(status), "status", status));
@@ -306,6 +372,27 @@ class PlanningBoardView extends ItemView {
       this.showArchivedGroups = !this.showArchivedGroups;
       this.render();
     });
+  }
+
+  renderTodayContext(root, tasks) {
+    const today = todayIso();
+    const todayTasks = tasks.filter((task) => task.due === today);
+    const overdueTasks = tasks.filter((task) => this.isOverdue(task));
+    const nextTask = tasks
+      .filter((task) => isIsoDate(task.due) && task.due > today && !this.isTaskComplete(task))
+      .sort((a, b) => a.due.localeCompare(b.due))[0];
+    const context = root.createDiv({ cls: "today-context", attr: { "aria-live": "polite" } });
+    context.innerHTML = `
+      <div>
+        <span class="today-context-label">本日</span>
+        <strong>${formatDateJa(today)}</strong>
+      </div>
+      <div class="today-context-meta">
+        <span>本日 ${todayTasks.length}件</span>
+        <span>期限超過 ${overdueTasks.length}件</span>
+        ${nextTask ? `<span>次: ${nextTask.due}</span>` : ""}
+      </div>
+    `;
   }
 
   filterButton(parent, label, active, kind, value) {
@@ -380,6 +467,107 @@ class PlanningBoardView extends ItemView {
     this.renderIcons(board);
   }
 
+  renderMonth(root, tasks) {
+    const board = root.createDiv({ cls: "action-board-view action-month-view", attr: { id: "generic-board-view" } });
+    const datedTasks = tasks.filter((task) => isIsoDate(task.due));
+    const monthKeys = [...new Set(datedTasks.map(monthKeyFromTask))].filter(Boolean).sort();
+    board.innerHTML = monthKeys.length
+      ? monthKeys.map((monthKey) => this.calendarMonthHtml(monthKey, datedTasks)).join("")
+      : '<div class="action-empty-state">期限付きのタスクはありません。</div>';
+  }
+
+  calendarMonthHtml(monthKey, tasks) {
+    const [year, month] = monthKey.split("-").map(Number);
+    const dayCount = new Date(year, month, 0).getDate();
+    const firstDay = new Date(year, month - 1, 1);
+    const leadingBlanks = (firstDay.getDay() + 6) % 7;
+    const monthTasks = tasks.filter((task) => monthKeyFromTask(task) === monthKey);
+    const cells = [
+      ...Array.from({ length: leadingBlanks }, () => '<article class="calendar-day is-empty" aria-hidden="true"></article>'),
+      ...Array.from({ length: dayCount }, (_, index) => {
+        const day = index + 1;
+        const date = `${monthKey}-${String(day).padStart(2, "0")}`;
+        const dayTasks = monthTasks.filter((task) => task.due === date);
+        const isToday = date === todayIso();
+        return `
+          <article class="calendar-day${isToday ? " is-today" : ""}" aria-label="${formatDateJa(date)} ${dayTasks.length}件">
+            <div class="calendar-day-head">
+              <strong>${day}</strong>
+              ${isToday ? '<span class="calendar-today-label">今日</span>' : ""}
+            </div>
+            <div class="calendar-day-items">
+              ${dayTasks
+                .map((task) => `<span class="calendar-task-pill action-type-${typeClass(task.type)}${this.isTaskComplete(task) ? " is-complete" : ""}" title="${task.title}">${task.title}</span>`)
+                .join("")}
+            </div>
+          </article>
+        `;
+      }),
+    ];
+    return `
+      <section class="calendar-panel">
+        <div class="calendar-head">
+          <div>
+            <span class="mini-label">月表示</span>
+            <h3>${year}年${month}月</h3>
+          </div>
+          <div class="calendar-head-meta">
+            <span>${monthTasks.length}件</span>
+            ${this.progressSummary(monthTasks, `${year}年${month}月`)}
+          </div>
+        </div>
+        <div class="calendar-weekdays" aria-hidden="true">
+          ${["月", "火", "水", "木", "金", "土", "日"].map((day) => `<span>${day}</span>`).join("")}
+        </div>
+        <div class="calendar-grid">${cells.join("")}</div>
+      </section>
+    `;
+  }
+
+  renderWeek(root, tasks) {
+    const board = root.createDiv({ cls: "action-board-view action-week-view", attr: { id: "generic-board-view" } });
+    const datedTasks = tasks.filter((task) => isIsoDate(task.due));
+    const undatedTasks = tasks.filter((task) => !isIsoDate(task.due));
+    const weeks = new Map();
+    datedTasks.forEach((task) => {
+      const key = startOfWeek(task.due);
+      if (!weeks.has(key)) weeks.set(key, []);
+      weeks.get(key).push(task);
+    });
+    const lanes = [...weeks.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([start, laneTasks]) => ({
+        title: `${formatDateJa(start).replace(/（.）$/, "")}週`,
+        note: `${start} - ${addDays(start, 6)}`,
+        tasks: laneTasks.sort((a, b) => dueTime(a.due) - dueTime(b.due)),
+      }));
+    if (undatedTasks.length > 0) {
+      lanes.push({ title: "時期未定", note: "期限なし", tasks: undatedTasks });
+    }
+    board.innerHTML = lanes.length
+      ? lanes
+        .map(
+          (lane) => `
+            <section class="week-lane">
+              <div class="week-lane-head">
+                <div>
+                  <span class="mini-label">${lane.title}</span>
+                  <strong>${lane.note}</strong>
+                </div>
+                <div class="week-lane-meta">
+                  ${this.progressSummary(lane.tasks, lane.title)}
+                </div>
+              </div>
+              <div class="week-lane-stack">
+                ${lane.tasks.map((task) => this.taskCard(task)).join("")}
+              </div>
+            </section>
+          `
+        )
+        .join("")
+      : '<div class="action-empty-state">表示するタスクはありません。</div>';
+  }
+
   renderIcons(root) {
     root.querySelectorAll("[data-collapse-icon]").forEach((icon) => {
       setIcon(icon, icon.dataset.collapseIcon);
@@ -419,11 +607,13 @@ class PlanningBoardView extends ItemView {
     const currentStatus = this.displayStatus(task);
     const selectionActive = this.taskArchiveSelectionGroupKey === task.groupArchiveKey && this.taskArchiveSelectionMode;
     const selectedForArchive = this.selectedTaskArchiveKeys.has(task.archiveKey);
+    const dueToday = this.isDueToday(task);
+    const overdue = this.isOverdue(task);
     return `
-      <article class="action-task-card${complete ? " is-complete" : ""}${selectionActive ? " is-archive-selectable" : ""}${selectedForArchive ? " is-archive-selected" : ""}" data-task-file="${task.file.path}" data-task-key="${this.taskKey(task)}" data-task-archive-key="${task.archiveKey}" data-task-status="${task.status}"${selectionActive ? ` role="checkbox" tabindex="0" aria-checked="${selectedForArchive}"` : ""}>
+      <article class="action-task-card${complete ? " is-complete" : ""}${dueToday ? " is-due-today" : ""}${overdue ? " is-overdue" : ""}${selectionActive ? " is-archive-selectable" : ""}${selectedForArchive ? " is-archive-selected" : ""}" data-task-file="${task.file.path}" data-task-key="${this.taskKey(task)}" data-task-archive-key="${task.archiveKey}" data-task-status="${task.status}"${selectionActive ? ` role="checkbox" tabindex="0" aria-checked="${selectedForArchive}"` : ""}>
         <div class="action-task-top">
           <span class="action-type-badge action-type-${typeClass(task.type)}">${typeLabel(task.type)}</span>
-          ${task.due ? `<time datetime="${isIsoDate(task.due) ? task.due : ""}">${task.due}</time>` : '<span class="action-floating-date">期限未定</span>'}
+          ${task.due ? `<time datetime="${isIsoDate(task.due) ? task.due : ""}"${dueToday ? ' class="today-date"' : ""}>${dueToday ? "今日 " : ""}${task.due}</time>` : '<span class="action-floating-date">期限未定</span>'}
         </div>
         <label class="action-complete-control">
           <input type="checkbox" data-task-complete ${complete ? "checked" : ""} ${selectionActive ? "disabled" : ""} />
