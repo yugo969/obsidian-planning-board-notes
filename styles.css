@@ -474,6 +474,8 @@
 
 @media (max-width: 760px) {
   .planning-board-notes {
+    max-width: 100%;
+    overflow-x: hidden;
     padding: 12px;
   }
 
@@ -482,6 +484,8 @@
   }
 
   .deadline-group {
+    box-sizing: border-box;
+    max-width: 100%;
     overflow: visible;
   }
 
@@ -493,10 +497,13 @@
     position: sticky;
     top: 0;
     z-index: 5;
-    display: flex;
+    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     gap: 8px;
-    margin: -14px -14px 12px;
+    max-width: 100%;
+    margin: 0 0 12px;
     padding: 10px 12px;
     border-bottom: 1px solid var(--board-border);
     border-radius: 8px 8px 6px 6px;
@@ -507,9 +514,9 @@
   .deadline-group-head > div:first-child {
     display: flex;
     min-width: 0;
-    flex: 1;
     align-items: center;
     gap: 8px;
+    overflow: hidden;
   }
 
   .deadline-group-head .mini-label {
@@ -530,11 +537,10 @@
   }
 
   .deadline-head-meta {
-    flex: 0 0 auto;
     flex-wrap: nowrap;
     justify-content: flex-end;
     gap: 7px;
-    margin-left: auto;
+    min-width: max-content;
   }
 
   .deadline-group-head .progress-track {
