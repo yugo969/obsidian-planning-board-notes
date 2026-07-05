@@ -1,3 +1,7 @@
+.planning-board-notes-root {
+  container: planning-board-notes / inline-size;
+}
+
 .planning-board-notes {
   --board-border: var(--background-modifier-border);
   --board-muted: var(--text-muted);
@@ -472,7 +476,7 @@
   overflow: auto;
 }
 
-@media (max-width: 760px) {
+@container planning-board-notes (max-width: 760px) {
   .planning-board-notes {
     max-width: 100%;
     overflow-x: hidden;
@@ -502,10 +506,12 @@
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     gap: 8px;
-    width: calc(100% + 28px);
-    max-width: calc(100% + 28px);
-    margin: -14px -14px 12px;
-    padding: 10px 12px;
+    inline-size: calc(100% + 28px);
+    max-inline-size: calc(100% + 28px);
+    margin-block: -14px 12px;
+    margin-inline: -14px;
+    padding-block: 10px;
+    padding-inline: 12px;
     border-bottom: 1px solid var(--board-border);
     border-radius: 8px 8px 6px 6px;
     background: var(--background-secondary);
