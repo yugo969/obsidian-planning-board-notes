@@ -502,8 +502,8 @@
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     gap: 8px;
-    max-width: 100%;
     width: calc(100% + 28px);
+    max-width: calc(100% + 28px);
     margin: -14px -14px 12px;
     padding: 10px 12px;
     border-bottom: 1px solid var(--board-border);
