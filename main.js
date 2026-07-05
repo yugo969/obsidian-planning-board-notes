@@ -1,0 +1,604 @@
+const {
+  ItemView,
+  MarkdownRenderer,
+  Modal,
+  Notice,
+  Plugin,
+  TFile,
+} = require("obsidian");
+
+const VIEW_TYPE = "planning-board-notes-view";
+const TASK_FOLDER = "Planning Board/Tasks";
+const GROUP_FOLDER = "Planning Board/Groups";
+const STATUSES = ["未着手", "進行中", "保留", "完了"];
+const TYPES = ["やること", "決めること", "確認すること"];
+
+function statusClass(status) {
+  return {
+    未着手: "pending",
+    進行中: "doing",
+    完了: "done",
+    保留: "hold",
+  }[status] || "pending";
+}
+
+function typeClass(type) {
+  return {
+    やること: "todo",
+    決めること: "decision",
+    確認すること: "check",
+  }[type] || "todo";
+}
+
+function typeLabel(type) {
+  return {
+    やること: "やる",
+    決めること: "決める",
+    確認すること: "確認",
+  }[type] || type || "やる";
+}
+
+function isIsoDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(safeValue(value));
+}
+
+function safeValue(value, fallback = "") {
+  if (value === null || value === undefined) return fallback;
+  return String(value);
+}
+
+function isBlankDue(value) {
+  const due = safeValue(value).trim();
+  return !due || due === "時期未定";
+}
+
+function dueTime(value) {
+  if (isBlankDue(value)) return Number.POSITIVE_INFINITY;
+  const time = new Date(`${value}T00:00:00`).getTime();
+  return Number.isNaN(time) ? Number.POSITIVE_INFINITY : time;
+}
+
+function stripFrontmatter(content) {
+  return content.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
+}
+
+function getFrontmatter(app, file) {
+  return app.metadataCache.getFileCache(file)?.frontmatter || {};
+}
+
+class PlanningBoardNotesPlugin extends Plugin {
+  async onload() {
+    this.settings = Object.assign({ collapsedGroups: {} }, await this.loadData());
+    this.registerView(VIEW_TYPE, (leaf) => new PlanningBoardView(leaf, this));
+
+    this.addRibbonIcon("layout-dashboard", "Planning Board Notes", () => {
+      this.activateView();
+    });
+
+    this.addCommand({
+      id: "open-planning-board-notes",
+      name: "Open Planning Board Notes",
+      callback: () => this.activateView(),
+    });
+
+    this.registerEvent(
+      this.app.metadataCache.on("changed", () => {
+        this.app.workspace.getLeavesOfType(VIEW_TYPE).forEach((leaf) => {
+          leaf.view?.render?.();
+        });
+      })
+    );
+  }
+
+  async activateView() {
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE);
+    const leaf = leaves[0] || this.app.workspace.getLeaf("tab");
+    await leaf.setViewState({ type: VIEW_TYPE, active: true });
+    this.app.workspace.revealLeaf(leaf);
+  }
+
+  async setGroupCollapsed(key, collapsed) {
+    this.settings.collapsedGroups[key] = collapsed === true;
+    await this.saveData(this.settings);
+  }
+}
+
+class PlanningBoardView extends ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+    this.showArchivedGroups = false;
+    this.activeTypes = new Set();
+    this.activeStatuses = new Set();
+    this.taskArchiveSelectionGroupKey = null;
+    this.taskArchiveSelectionMode = null;
+    this.selectedTaskArchiveKeys = new Set();
+  }
+
+  getViewType() {
+    return VIEW_TYPE;
+  }
+
+  getDisplayText() {
+    return "Planning Board";
+  }
+
+  getIcon() {
+    return "layout-dashboard";
+  }
+
+  async onOpen() {
+    this.containerEl.addClass("planning-board-notes-root");
+    this.contentEl.addEventListener("click", (event) => this.handleClick(event));
+    this.contentEl.addEventListener("change", (event) => this.handleChange(event));
+    this.contentEl.addEventListener("keydown", (event) => this.handleKeydown(event));
+    await this.render();
+  }
+
+  async render() {
+    const root = this.contentEl;
+    root.empty();
+    root.addClass("planning-board-notes");
+    const { groups, tasks } = this.loadModels();
+    const visibleGroups = this.visibleGroupModels(groups, tasks)
+      .map((group) => ({ ...group, tasks: this.filterTasks(group.tasks) }))
+      .filter((group) => group.tasks.length > 0);
+    const visibleTasks = visibleGroups.flatMap((group) => group.tasks);
+    this.renderHeader(root, tasks, visibleTasks);
+    this.renderDeadline(root, visibleGroups);
+  }
+
+  loadModels() {
+    const files = this.app.vault.getMarkdownFiles();
+    const groupFiles = files.filter((file) => file.path.startsWith(`${GROUP_FOLDER}/`));
+    const taskFiles = files.filter((file) => file.path.startsWith(`${TASK_FOLDER}/`));
+    const groups = groupFiles.map((file) => {
+      const fm = getFrontmatter(this.app, file);
+      return {
+        file,
+        title: safeValue(fm.title || file.basename),
+        period: safeValue(fm.period, "時期未定"),
+        window: safeValue(fm.window, ""),
+        note: safeValue(fm.note, ""),
+        archived: fm.archived === true,
+        order: Number(fm.order || 9999),
+        memoLabel: safeValue(fm.memo_label, ""),
+      };
+    });
+    const tasks = taskFiles.map((file) => {
+      const fm = getFrontmatter(this.app, file);
+      return {
+        file,
+        title: safeValue(fm.title || file.basename),
+        group: safeValue(fm.group, "未分類"),
+        type: safeValue(fm.type, "やること"),
+        status: safeValue(fm.status, "未着手"),
+        incompleteStatus: safeValue(fm.incompleteStatus, "未着手"),
+        due: safeValue(fm.due, ""),
+        text: safeValue(fm.summary || fm.text, ""),
+        source: safeValue(fm.source, ""),
+        archived: fm.archived === true,
+        order: Number(fm.order || 9999),
+        groupOrder: Number(fm.group_order || 9999),
+      };
+    });
+    groups.sort((a, b) => a.order - b.order || dueTime(a.period) - dueTime(b.period));
+    tasks.sort((a, b) => a.groupOrder - b.groupOrder || dueTime(a.due) - dueTime(b.due) || a.order - b.order);
+    return { groups, tasks };
+  }
+
+  groupStateKey(group) {
+    return `deadline-group::${group.period || "undated"}::${group.title}`;
+  }
+
+  groupArchiveKey(group) {
+    return `archive-group::${group.period || "undated"}::${group.title}`;
+  }
+
+  taskKey(task) {
+    return `${task.due || "undated"}::${task.title}`;
+  }
+
+  taskArchiveKey(group, task) {
+    return `archive-task::${group.period || "undated"}::${group.title}::${this.taskKey(task)}`;
+  }
+
+  isGroupCollapsed(group) {
+    return this.plugin.settings?.collapsedGroups?.[this.groupStateKey(group)] === true;
+  }
+
+  displayStatus(task) {
+    if (task.status === "完了") return "完了";
+    return task.status || "未着手";
+  }
+
+  isTaskComplete(task) {
+    return this.displayStatus(task) === "完了";
+  }
+
+  filterTasks(tasks) {
+    return tasks.filter((task) => {
+      const typeMatch = this.activeTypes.size === 0 || this.activeTypes.has(task.type);
+      const statusMatch = this.activeStatuses.size === 0 || this.activeStatuses.has(this.displayStatus(task));
+      return typeMatch && statusMatch;
+    });
+  }
+
+  taskWithGroup(group, task) {
+    return {
+      ...task,
+      groupWindow: group.window,
+      groupTitle: group.title,
+      groupArchiveKey: this.groupArchiveKey(group),
+      archiveKey: this.taskArchiveKey(group, task),
+      groupArchived: group.archived === true,
+    };
+  }
+
+  visibleGroupModels(groups, allTasks) {
+    const byTitle = new Map(groups.map((group) => [group.title, { ...group, allTasks: [] }]));
+    allTasks.forEach((task) => {
+      if (!byTitle.has(task.group)) {
+        byTitle.set(task.group, {
+          title: task.group,
+          period: "時期未定",
+          window: "",
+          note: "",
+          archived: false,
+          order: task.groupOrder,
+          allTasks: [],
+        });
+      }
+      byTitle.get(task.group).allTasks.push(task);
+    });
+    return [...byTitle.values()]
+      .map((group) => {
+        const allGroupTasks = group.allTasks.map((task) => this.taskWithGroup(group, task));
+        const archivedTasks = allGroupTasks.filter((task) => task.archived);
+        const activeTasks = allGroupTasks.filter((task) => !task.archived);
+        const tasks = this.showArchivedGroups
+          ? group.archived
+            ? allGroupTasks
+            : archivedTasks
+          : group.archived
+            ? []
+            : activeTasks;
+        return {
+          ...group,
+          tasks,
+          archivedTaskCount: archivedTasks.length,
+          totalTaskCount: allGroupTasks.length,
+        };
+      })
+      .filter((group) => group.tasks.length > 0)
+      .sort((a, b) => a.order - b.order || dueTime(a.period) - dueTime(b.period));
+  }
+
+  clearTaskArchiveSelection() {
+    this.taskArchiveSelectionGroupKey = null;
+    this.taskArchiveSelectionMode = null;
+    this.selectedTaskArchiveKeys = new Set();
+  }
+
+  renderHeader(root, tasks, visibleTasks) {
+    const header = root.createDiv({ cls: "planning-board-header" });
+    const heading = header.createDiv({ cls: "planning-board-heading" });
+    heading.createEl("h2", { text: "Planning Board" });
+    const done = visibleTasks.filter((task) => this.isTaskComplete(task)).length;
+    heading.createEl("p", {
+      text: this.showArchivedGroups
+        ? `アーカイブ ${visibleTasks.length}件を表示、完了 ${done}件`
+        : `${visibleTasks.length}/${tasks.length}件を表示、表示中の完了 ${done}件`,
+    });
+    const filters = root.createDiv({ cls: "action-type-filter-list" });
+    TYPES.forEach((type) => this.filterButton(filters, typeLabel(type), this.activeTypes.has(type), "type", type));
+    STATUSES.forEach((status) => this.filterButton(filters, status, this.activeStatuses.has(status), "status", status));
+    const archive = filters.createEl("button", {
+      cls: `action-type-filter action-archive-filter${this.showArchivedGroups ? " is-active" : ""}`,
+      text: this.showArchivedGroups ? "通常表示" : "アーカイブ",
+      attr: { "aria-pressed": String(this.showArchivedGroups), "data-archive-filter": "true" },
+    });
+    archive.addEventListener("click", () => {
+      this.clearTaskArchiveSelection();
+      this.showArchivedGroups = !this.showArchivedGroups;
+      this.render();
+    });
+  }
+
+  filterButton(parent, label, active, kind, value) {
+    const button = parent.createEl("button", {
+      cls: `action-type-filter${active ? " is-active" : ""}`,
+      text: label,
+      attr: { "aria-pressed": String(active) },
+    });
+    button.addEventListener("click", () => {
+      this.clearTaskArchiveSelection();
+      const set = kind === "type" ? this.activeTypes : this.activeStatuses;
+      if (set.has(value)) set.delete(value);
+      else set.add(value);
+      this.render();
+    });
+  }
+
+  progressSummary(tasks, label) {
+    const total = tasks.length;
+    const complete = tasks.filter((task) => this.isTaskComplete(task)).length;
+    const percent = total === 0 ? 0 : Math.round((complete / total) * 100);
+    return `
+      <div class="progress-summary" aria-label="${label}の進捗 ${complete}/${total}">
+        <div class="progress-track" aria-hidden="true"><span style="width: ${percent}%"></span></div>
+        <span class="progress-count">${complete}/${total}</span>
+      </div>
+    `;
+  }
+
+  groupArchiveButton(group) {
+    const archiveKey = this.groupArchiveKey(group);
+    const selecting = this.taskArchiveSelectionGroupKey === archiveKey;
+    const hasArchivedTasks = group.archivedTaskCount > 0;
+    const canSelectTasks = !group.archived && (!this.showArchivedGroups || hasArchivedTasks);
+    return `
+      <details class="group-archive-settings${group.archived || this.showArchivedGroups ? " is-archived" : ""}" data-group-archive-menu${selecting ? " open" : ""}>
+        <summary aria-label="${group.title}のアーカイブ操作" title="アーカイブ">
+          <svg class="archive-action-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect width="20" height="5" x="2" y="3" rx="1"></rect>
+            <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"></path>
+            <path d="M10 12h4"></path>
+          </svg>
+        </summary>
+        <div class="group-archive-menu">
+          <button type="button" data-group-archive-all>${group.archived ? "全体解除" : "全体"}</button>
+          ${canSelectTasks ? `<button type="button" data-task-archive-start data-task-archive-mode="${this.showArchivedGroups ? "restore" : "archive"}">選択</button>` : ""}
+        </div>
+      </details>
+    `;
+  }
+
+  archiveSelectionPanel(group) {
+    const active = this.taskArchiveSelectionGroupKey === this.groupArchiveKey(group);
+    if (!active) return "";
+    const selectedCount = this.selectedTaskArchiveKeys.size;
+    const isRestore = this.taskArchiveSelectionMode === "restore";
+    return `
+      <div class="archive-selection-panel" role="status">
+        <span>${isRestore ? "戻す項目を選択" : "アーカイブする項目を選択"}</span>
+        <strong>${selectedCount}件選択</strong>
+        <button type="button" data-task-archive-commit ${selectedCount === 0 ? "disabled" : ""}>${isRestore ? "戻す" : "アーカイブ"}</button>
+        <button type="button" data-task-archive-cancel>キャンセル</button>
+      </div>
+    `;
+  }
+
+  renderDeadline(root, groups) {
+    const board = root.createDiv({ cls: "action-board-view action-deadline-view", attr: { id: "generic-board-view" } });
+    board.innerHTML = groups.length
+      ? groups.map((group) => this.groupHtml(group)).join("")
+      : `<div class="action-empty-state">${this.showArchivedGroups ? "アーカイブ済みの項目はありません。" : "選択した種別のタスクはありません。"}</div>`;
+  }
+
+  groupHtml(group) {
+    const collapsed = this.isGroupCollapsed(group);
+    const stateKey = this.groupStateKey(group);
+    const archiveKey = this.groupArchiveKey(group);
+    return `
+      <section class="deadline-group${collapsed ? " is-collapsed" : ""}${group.archived ? " is-archived" : ""}" data-group-state-key="${stateKey}" data-group-archive-key="${archiveKey}">
+        <div class="deadline-group-head">
+          <div>
+            <span class="mini-label">${group.window || group.period || "時期未定"}</span>
+            <h3 title="${group.title}">${group.title}</h3>
+          </div>
+          <div class="deadline-head-meta">
+            ${this.progressSummary(group.tasks, group.title)}
+            ${this.groupArchiveButton(group)}
+            <button class="group-collapse-toggle" type="button" data-group-collapse aria-expanded="${!collapsed}" aria-label="${group.title}のタスク一覧を${collapsed ? "表示" : "非表示"}">${collapsed ? "+" : "-"}</button>
+          </div>
+        </div>
+        <p>${group.note || ""} ${group.file ? `<button class="group-memo-button" type="button" data-group-file="${group.file.path}">${group.memoLabel || "メモ"}</button>` : ""}</p>
+        ${this.archiveSelectionPanel(group)}
+        <div class="deadline-task-grid" ${collapsed ? "hidden" : ""}>
+          ${group.tasks.map((task) => this.taskCard(task)).join("")}
+        </div>
+      </section>
+    `;
+  }
+
+  taskCard(task) {
+    const complete = this.isTaskComplete(task);
+    const currentStatus = this.displayStatus(task);
+    const selectionActive = this.taskArchiveSelectionGroupKey === task.groupArchiveKey && this.taskArchiveSelectionMode;
+    const selectedForArchive = this.selectedTaskArchiveKeys.has(task.archiveKey);
+    return `
+      <article class="action-task-card${complete ? " is-complete" : ""}${selectionActive ? " is-archive-selectable" : ""}${selectedForArchive ? " is-archive-selected" : ""}" data-task-file="${task.file.path}" data-task-key="${this.taskKey(task)}" data-task-archive-key="${task.archiveKey}" data-task-status="${task.status}"${selectionActive ? ` role="checkbox" tabindex="0" aria-checked="${selectedForArchive}"` : ""}>
+        <div class="action-task-top">
+          <span class="action-type-badge action-type-${typeClass(task.type)}">${typeLabel(task.type)}</span>
+          ${task.due ? `<time datetime="${isIsoDate(task.due) ? task.due : ""}">${task.due}</time>` : '<span class="action-floating-date">期限未定</span>'}
+        </div>
+        <label class="action-complete-control">
+          <input type="checkbox" data-task-complete ${complete ? "checked" : ""} ${selectionActive ? "disabled" : ""} />
+          <span aria-hidden="true"></span>
+          <strong>${task.title}</strong>
+        </label>
+        <details class="task-detail-toggle" ${complete ? "" : "open"}>
+          <summary>詳細</summary>
+          <div class="task-detail-body">
+            <p class="action-task-text">${task.text}</p>
+            <div class="task-source-block">
+              <span class="mini-label">元会話</span>
+              <p>${task.source}</p>
+            </div>
+            <div class="task-support-actions">
+              <button type="button" data-task-detail="${task.file.path}">詳細メモ</button>
+              <button type="button" data-task-open="${task.file.path}">ノート</button>
+            </div>
+          </div>
+        </details>
+        <div class="action-task-foot">
+          <span class="action-status action-status-${statusClass(currentStatus)}">${currentStatus}</span>
+          <span>${task.groupWindow || ""}</span>
+        </div>
+      </article>
+    `;
+  }
+
+  async handleChange(event) {
+    const checkbox = event.target.closest?.("[data-task-complete]");
+    if (!checkbox) return;
+    const card = checkbox.closest("[data-task-file]");
+    const file = this.app.vault.getAbstractFileByPath(card?.dataset.taskFile || "");
+    if (!file) return;
+    const status = checkbox.checked ? "完了" : "未着手";
+    await this.updateFrontmatter(file, { status });
+    this.render();
+  }
+
+  async handleClick(event) {
+    const selectCard = event.target.closest?.("[data-task-archive-key]");
+    if (selectCard && this.taskArchiveSelectionGroupKey && selectCard.closest("[data-group-archive-key]")?.dataset.groupArchiveKey === this.taskArchiveSelectionGroupKey && !event.target.closest("summary, button, input")) {
+      this.toggleSelectedArchiveKey(selectCard.dataset.taskArchiveKey);
+      this.render();
+      return;
+    }
+    if (event.target.closest?.("[data-task-archive-cancel]")) {
+      this.clearTaskArchiveSelection();
+      this.render();
+      return;
+    }
+    if (event.target.closest?.("[data-task-archive-commit]")) {
+      await this.commitArchiveSelection();
+      return;
+    }
+    const startButton = event.target.closest?.("[data-task-archive-start]");
+    if (startButton) {
+      const group = startButton.closest("[data-group-archive-key]");
+      this.taskArchiveSelectionGroupKey = group?.dataset.groupArchiveKey || null;
+      this.taskArchiveSelectionMode = startButton.dataset.taskArchiveMode;
+      this.selectedTaskArchiveKeys = new Set();
+      this.render();
+      return;
+    }
+    const archiveAllButton = event.target.closest?.("[data-group-archive-all]");
+    if (archiveAllButton) {
+      const groupEl = archiveAllButton.closest("[data-group-archive-key]");
+      const group = this.findVisibleGroupByArchiveKey(groupEl?.dataset.groupArchiveKey);
+      if (!group?.file) return;
+      await this.updateFrontmatter(group.file, { archived: !group.archived });
+      this.clearTaskArchiveSelection();
+      this.render();
+      return;
+    }
+    const collapseButton = event.target.closest?.("[data-group-collapse]");
+    if (collapseButton) {
+      const group = collapseButton.closest("[data-group-state-key]");
+      const collapsed = !group.classList.contains("is-collapsed");
+      await this.plugin.setGroupCollapsed(group.dataset.groupStateKey, collapsed);
+      this.render();
+      return;
+    }
+    const taskDetail = event.target.closest?.("[data-task-detail]");
+    if (taskDetail) {
+      const file = this.app.vault.getAbstractFileByPath(taskDetail.dataset.taskDetail);
+      if (file) new TaskDetailModal(this.app, file).open();
+      return;
+    }
+    const taskOpen = event.target.closest?.("[data-task-open]");
+    if (taskOpen) {
+      const file = this.app.vault.getAbstractFileByPath(taskOpen.dataset.taskOpen);
+      if (file) this.app.workspace.getLeaf("tab").openFile(file);
+      return;
+    }
+    const groupMemo = event.target.closest?.("[data-group-file]");
+    if (groupMemo) {
+      const file = this.app.vault.getAbstractFileByPath(groupMemo.dataset.groupFile);
+      if (file) new GroupMemoModal(this.app, file).open();
+    }
+  }
+
+  handleKeydown(event) {
+    if (![" ", "Enter"].includes(event.key) || !this.taskArchiveSelectionGroupKey) return;
+    const card = event.target.closest?.("[data-task-archive-key]");
+    if (!card) return;
+    const group = card.closest("[data-group-archive-key]");
+    if (group?.dataset.groupArchiveKey !== this.taskArchiveSelectionGroupKey) return;
+    event.preventDefault();
+    this.toggleSelectedArchiveKey(card.dataset.taskArchiveKey);
+    this.render();
+  }
+
+  toggleSelectedArchiveKey(key) {
+    if (this.selectedTaskArchiveKeys.has(key)) this.selectedTaskArchiveKeys.delete(key);
+    else this.selectedTaskArchiveKeys.add(key);
+  }
+
+  findVisibleGroupByArchiveKey(key) {
+    const { groups, tasks } = this.loadModels();
+    return this.visibleGroupModels(groups, tasks).find((group) => this.groupArchiveKey(group) === key);
+  }
+
+  async commitArchiveSelection() {
+    const archive = this.taskArchiveSelectionMode === "archive";
+    const { groups, tasks } = this.loadModels();
+    const visibleGroups = this.visibleGroupModels(groups, tasks);
+    const selected = visibleGroups.flatMap((group) => group.tasks).filter((task) => this.selectedTaskArchiveKeys.has(task.archiveKey));
+    for (const task of selected) {
+      await this.updateFrontmatter(task.file, { archived: archive });
+    }
+    this.clearTaskArchiveSelection();
+    this.render();
+  }
+
+  async updateFrontmatter(file, values) {
+    await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+      Object.entries(values).forEach(([key, value]) => {
+        frontmatter[key] = value;
+      });
+    });
+  }
+}
+
+class TaskDetailModal extends Modal {
+  constructor(app, file) {
+    super(app);
+    this.file = file;
+  }
+
+  async onOpen() {
+    const { contentEl } = this;
+    contentEl.addClass("pbn-modal");
+    const fm = getFrontmatter(this.app, this.file);
+    contentEl.createEl("h2", { text: safeValue(fm.title || this.file.basename) });
+    const meta = contentEl.createDiv({ cls: "pbn-modal-meta" });
+    meta.createSpan({ text: safeValue(fm.group, "未分類") });
+    meta.createSpan({ text: safeValue(fm.status, "未着手") });
+    meta.createSpan({ text: safeValue(fm.due, "期限なし") });
+    const content = stripFrontmatter(await this.app.vault.read(this.file));
+    const renderTarget = contentEl.createDiv({ cls: "pbn-modal-body markdown-rendered" });
+    await MarkdownRenderer.render(this.app, content || safeValue(fm.summary), renderTarget, this.file.path, this);
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+class GroupMemoModal extends Modal {
+  constructor(app, file) {
+    super(app);
+    this.file = file;
+  }
+
+  async onOpen() {
+    const { contentEl } = this;
+    contentEl.addClass("pbn-modal");
+    const fm = getFrontmatter(this.app, this.file);
+    contentEl.createEl("h2", { text: safeValue(fm.title || this.file.basename) });
+    const content = stripFrontmatter(await this.app.vault.read(this.file));
+    const renderTarget = contentEl.createDiv({ cls: "pbn-modal-body markdown-rendered" });
+    await MarkdownRenderer.render(this.app, content, renderTarget, this.file.path, this);
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = PlanningBoardNotesPlugin;
