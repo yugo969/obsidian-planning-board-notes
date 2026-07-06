@@ -197,6 +197,19 @@ class PlanningBoardView extends ItemView {
     }
   }
 
+  async renderPreservingScroll() {
+    const scrollTargets = [this.contentEl, this.contentEl.parentElement, this.contentEl.closest(".workspace-leaf-content")]
+      .filter((element, index, list) => element && list.indexOf(element) === index)
+      .map((element) => ({ element, top: element.scrollTop, left: element.scrollLeft }));
+    await this.render();
+    requestAnimationFrame(() => {
+      scrollTargets.forEach(({ element, top, left }) => {
+        element.scrollTop = top;
+        element.scrollLeft = left;
+      });
+    });
+  }
+
   loadModels() {
     const files = this.app.vault.getMarkdownFiles();
     const groupFiles = files.filter((file) => file.path.startsWith(`${GROUP_FOLDER}/`));
@@ -362,7 +375,7 @@ class PlanningBoardView extends ItemView {
       button.addEventListener("click", () => {
         this.currentView = view;
         this.clearTaskArchiveSelection();
-        this.render();
+        this.renderPreservingScroll();
       });
     });
     const filters = root.createDiv({ cls: "action-type-filter-list" });
@@ -378,7 +391,7 @@ class PlanningBoardView extends ItemView {
     archive.addEventListener("click", () => {
       this.clearTaskArchiveSelection();
       this.showArchivedGroups = !this.showArchivedGroups;
-      this.render();
+      this.renderPreservingScroll();
     });
   }
 
@@ -414,7 +427,7 @@ class PlanningBoardView extends ItemView {
       const set = kind === "type" ? this.activeTypes : this.activeStatuses;
       if (set.has(value)) set.delete(value);
       else set.add(value);
-      this.render();
+      this.renderPreservingScroll();
     });
   }
 
@@ -665,19 +678,19 @@ class PlanningBoardView extends ItemView {
     if (!file) return;
     const status = checkbox.checked ? "完了" : "未着手";
     await this.updateFrontmatter(file, { status });
-    this.render();
+    await this.renderPreservingScroll();
   }
 
   async handleClick(event) {
     const selectCard = event.target.closest?.("[data-task-archive-key]");
     if (selectCard && this.taskArchiveSelectionGroupKey && selectCard.closest("[data-group-archive-key]")?.dataset.groupArchiveKey === this.taskArchiveSelectionGroupKey && !event.target.closest("summary, button, input")) {
       this.toggleSelectedArchiveKey(selectCard.dataset.taskArchiveKey);
-      this.render();
+      this.renderPreservingScroll();
       return;
     }
     if (event.target.closest?.("[data-task-archive-cancel]")) {
       this.clearTaskArchiveSelection();
-      this.render();
+      this.renderPreservingScroll();
       return;
     }
     if (event.target.closest?.("[data-task-archive-commit]")) {
@@ -690,7 +703,7 @@ class PlanningBoardView extends ItemView {
       this.taskArchiveSelectionGroupKey = group?.dataset.groupArchiveKey || null;
       this.taskArchiveSelectionMode = startButton.dataset.taskArchiveMode;
       this.selectedTaskArchiveKeys = new Set();
-      this.render();
+      this.renderPreservingScroll();
       return;
     }
     const archiveAllButton = event.target.closest?.("[data-group-archive-all]");
@@ -700,7 +713,7 @@ class PlanningBoardView extends ItemView {
       if (!group?.file) return;
       await this.updateFrontmatter(group.file, { archived: !group.archived });
       this.clearTaskArchiveSelection();
-      this.render();
+      await this.renderPreservingScroll();
       return;
     }
     const collapseButton = event.target.closest?.("[data-group-collapse]");
@@ -708,7 +721,7 @@ class PlanningBoardView extends ItemView {
       const group = collapseButton.closest("[data-group-state-key]");
       const collapsed = !group.classList.contains("is-collapsed");
       await this.plugin.setGroupCollapsed(group.dataset.groupStateKey, collapsed);
-      this.render();
+      await this.renderPreservingScroll();
       return;
     }
     const taskDetail = event.target.closest?.("[data-task-detail]");
@@ -744,7 +757,7 @@ class PlanningBoardView extends ItemView {
     if (group?.dataset.groupArchiveKey !== this.taskArchiveSelectionGroupKey) return;
     event.preventDefault();
     this.toggleSelectedArchiveKey(card.dataset.taskArchiveKey);
-    this.render();
+    this.renderPreservingScroll();
   }
 
   toggleSelectedArchiveKey(key) {
@@ -766,7 +779,7 @@ class PlanningBoardView extends ItemView {
       await this.updateFrontmatter(task.file, { archived: archive });
     }
     this.clearTaskArchiveSelection();
-    this.render();
+    await this.renderPreservingScroll();
   }
 
   async updateFrontmatter(file, values) {
@@ -884,7 +897,7 @@ class TaskCardModal extends Modal {
     this.statusOverrides.set(file.path, status);
     this.applyCardCompletion(card, checkbox.checked, status);
     await this.view.updateFrontmatter(file, { status });
-    await this.view.render();
+    await this.view.renderPreservingScroll();
     this.applyCardCompletion(card, checkbox.checked, status);
   }
 
@@ -926,7 +939,7 @@ class TaskCardModal extends Modal {
     const file = this.app.vault.getAbstractFileByPath(filePath || "");
     if (!file) return;
     this.filePath = file.path;
-    await this.view.render();
+    await this.view.renderPreservingScroll();
     this.renderContent();
     this.view.scrollMonthToTask(file.path);
   }
