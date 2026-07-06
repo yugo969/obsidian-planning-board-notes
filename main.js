@@ -793,6 +793,7 @@ class TaskCardModal extends Modal {
     super(app);
     this.view = view;
     this.filePath = filePath;
+    this.statusOverrides = new Map();
   }
 
   async onOpen() {
@@ -805,15 +806,19 @@ class TaskCardModal extends Modal {
 
   findGroupAndTask() {
     const { groups, tasks } = this.view.loadModels();
+    const tasksWithOverrides = tasks.map((task) => {
+      const status = this.statusOverrides.get(task.file.path);
+      return status ? { ...task, status } : task;
+    });
     const visibleGroups = this.view
-      .visibleGroupModels(groups, tasks)
+      .visibleGroupModels(groups, tasksWithOverrides)
       .map((group) => ({ ...group, tasks: this.view.filterTasks(group.tasks) }))
       .filter((group) => group.tasks.length > 0);
     for (const group of visibleGroups) {
       const task = group.tasks.find((item) => item.file.path === this.filePath);
       if (task) return { group, task };
     }
-    const fallback = tasks.find((task) => task.file.path === this.filePath);
+    const fallback = tasksWithOverrides.find((task) => task.file.path === this.filePath);
     return { group: null, task: fallback || null };
   }
 
@@ -848,10 +853,27 @@ class TaskCardModal extends Modal {
     const file = this.app.vault.getAbstractFileByPath(card?.dataset.taskFile || "");
     if (!file) return;
     const status = checkbox.checked ? "完了" : "未着手";
+    this.statusOverrides.set(file.path, status);
+    this.applyCardCompletion(card, checkbox.checked, status);
     await this.view.updateFrontmatter(file, { status });
     this.filePath = file.path;
     await this.view.render();
     this.renderContent();
+  }
+
+  applyCardCompletion(card, checked, status) {
+    card.classList.toggle("is-complete", checked);
+    card.classList.toggle("is-overdue", card.classList.contains("is-overdue") && !checked);
+    card.dataset.taskStatus = status;
+    const checkbox = card.querySelector("[data-task-complete]");
+    if (checkbox) checkbox.checked = checked;
+    const details = card.querySelector(".task-detail-toggle");
+    if (details) details.open = !checked;
+    const badge = card.querySelector(".action-status");
+    if (badge) {
+      badge.className = `action-status action-status-${statusClass(status)}`;
+      badge.textContent = status;
+    }
   }
 
   handleClick(event) {
