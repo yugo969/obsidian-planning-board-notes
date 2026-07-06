@@ -718,6 +718,12 @@
   margin-top: 0;
 }
 
+.pbn-modal-context {
+  display: flex;
+  margin-bottom: 8px;
+  width: fit-content;
+}
+
 .pbn-modal-meta {
   display: flex;
   flex-wrap: wrap;

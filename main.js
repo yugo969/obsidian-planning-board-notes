@@ -101,6 +101,33 @@ function stripFrontmatter(content) {
   return content.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
 }
 
+function normalizeMarkdownHeading(value) {
+  return safeValue(value)
+    .replace(/^#{1,6}\s+/, "")
+    .replace(/\s+#+$/, "")
+    .trim();
+}
+
+function extractMarkdownSection(content, heading) {
+  const target = normalizeMarkdownHeading(heading);
+  if (!target) return content.trim();
+  const lines = content.split(/\r?\n/);
+  const start = lines.findIndex((line) => {
+    const match = line.match(/^(#{1,6})\s+(.+?)\s*#*$/);
+    return match && match[1].length === 2 && normalizeMarkdownHeading(match[2]) === target;
+  });
+  if (start === -1) return content.trim();
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const match = lines[index].match(/^(#{1,6})\s+/);
+    if (match && match[1].length <= 2) {
+      end = index;
+      break;
+    }
+  }
+  return lines.slice(start + 1, end).join("\n").trim();
+}
+
 function getFrontmatter(app, file) {
   return app.metadataCache.getFileCache(file)?.frontmatter || {};
 }
@@ -621,7 +648,7 @@ class PlanningBoardView extends ItemView {
             </button>
           </div>
         </div>
-        <p>${group.note || ""} ${group.file ? `<button class="group-memo-button" type="button" data-group-file="${group.file.path}">${group.memoLabel || "メモ"}</button>` : ""}</p>
+        <p>${group.note || ""} ${group.file && group.memoLabel ? `<button class="group-memo-button" type="button" data-group-file="${group.file.path}">${group.memoLabel}</button>` : ""}</p>
         ${this.archiveSelectionPanel(group)}
         <div class="deadline-task-grid" ${collapsed ? "hidden" : ""}>
           ${group.tasks.map((task) => this.taskCard(task)).join("")}
@@ -657,7 +684,6 @@ class PlanningBoardView extends ItemView {
               <p>${task.source}</p>
             </div>
             <div class="task-support-actions">
-              <button type="button" data-task-detail="${task.file.path}">詳細メモ</button>
               <button type="button" data-task-open="${task.file.path}">ノート</button>
             </div>
           </div>
@@ -724,12 +750,6 @@ class PlanningBoardView extends ItemView {
       await this.renderPreservingScroll();
       return;
     }
-    const taskDetail = event.target.closest?.("[data-task-detail]");
-    if (taskDetail) {
-      const file = this.app.vault.getAbstractFileByPath(taskDetail.dataset.taskDetail);
-      if (file) new TaskDetailModal(this.app, file).open();
-      return;
-    }
     const calendarTask = event.target.closest?.("[data-calendar-task]");
     if (calendarTask) {
       const file = this.app.vault.getAbstractFileByPath(calendarTask.dataset.calendarTask);
@@ -788,31 +808,6 @@ class PlanningBoardView extends ItemView {
         frontmatter[key] = value;
       });
     });
-  }
-}
-
-class TaskDetailModal extends Modal {
-  constructor(app, file) {
-    super(app);
-    this.file = file;
-  }
-
-  async onOpen() {
-    const { contentEl } = this;
-    contentEl.addClass("pbn-modal", "pbn-task-detail-modal");
-    const fm = getFrontmatter(this.app, this.file);
-    contentEl.createEl("h2", { text: safeValue(fm.title || this.file.basename) });
-    const meta = contentEl.createDiv({ cls: "pbn-modal-meta" });
-    meta.createSpan({ text: safeValue(fm.group, "未分類") });
-    meta.createSpan({ text: safeValue(fm.status, "未着手") });
-    meta.createSpan({ text: safeValue(fm.due, "期限なし") });
-    const content = stripFrontmatter(await this.app.vault.read(this.file));
-    const renderTarget = contentEl.createDiv({ cls: "pbn-modal-body markdown-rendered" });
-    await MarkdownRenderer.render(this.app, content || safeValue(fm.summary), renderTarget, this.file.path, this);
-  }
-
-  onClose() {
-    this.contentEl.empty();
   }
 }
 
@@ -922,12 +917,6 @@ class TaskCardModal extends Modal {
       this.switchTask(switchButton.dataset.modalTaskSwitch);
       return;
     }
-    const detail = event.target.closest?.("[data-task-detail]");
-    if (detail) {
-      const file = this.app.vault.getAbstractFileByPath(detail.dataset.taskDetail);
-      if (file) new TaskDetailModal(this.app, file).open();
-      return;
-    }
     const open = event.target.closest?.("[data-task-open]");
     if (open) {
       const file = this.app.vault.getAbstractFileByPath(open.dataset.taskOpen);
@@ -959,8 +948,16 @@ class GroupMemoModal extends Modal {
     const { contentEl } = this;
     contentEl.addClass("pbn-modal");
     const fm = getFrontmatter(this.app, this.file);
-    contentEl.createEl("h2", { text: safeValue(fm.title || this.file.basename) });
-    const content = stripFrontmatter(await this.app.vault.read(this.file));
+    const title = safeValue(fm.title || this.file.basename);
+    const memoLabel = safeValue(fm.memo_label, "");
+    if (memoLabel) {
+      contentEl.createSpan({ cls: "mini-label pbn-modal-context", text: title });
+      contentEl.createEl("h2", { text: memoLabel });
+    } else {
+      contentEl.createEl("h2", { text: title });
+    }
+    const rawContent = stripFrontmatter(await this.app.vault.read(this.file));
+    const content = memoLabel ? extractMarkdownSection(rawContent, memoLabel) : rawContent;
     const renderTarget = contentEl.createDiv({ cls: "pbn-modal-body markdown-rendered" });
     await MarkdownRenderer.render(this.app, content, renderTarget, this.file.path, this);
   }
