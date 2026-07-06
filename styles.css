@@ -705,6 +705,15 @@
   max-width: 820px;
 }
 
+.modal:has(.pbn-task-card-modal) {
+  width: min(1080px, calc(100vw - 48px));
+  max-width: calc(100vw - 48px);
+}
+
+.pbn-task-card-modal {
+  max-width: none;
+}
+
 .pbn-modal h2 {
   margin-top: 0;
 }
@@ -768,11 +777,17 @@
 
 .pbn-modal-related-tasks .deadline-task-grid {
   margin-top: 12px;
+  align-items: start;
 }
 
 .pbn-modal-related-task {
   display: grid;
+  align-self: start;
   gap: 8px;
+}
+
+.pbn-modal-related-task .action-task-card {
+  min-height: 0;
 }
 
 .pbn-modal-task-switch,
