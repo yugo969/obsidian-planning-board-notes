@@ -48,6 +48,14 @@ function safeValue(value, fallback = "") {
   return String(value);
 }
 
+function escapeAttribute(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function isBlankDue(value) {
   const due = safeValue(value).trim();
   return !due || due === "時期未定";
@@ -476,6 +484,14 @@ class PlanningBoardView extends ItemView {
       : '<div class="action-empty-state">期限付きのタスクはありません。</div>';
   }
 
+  scrollMonthToTask(filePath) {
+    if (this.currentView !== "month") return;
+    requestAnimationFrame(() => {
+      const target = [...this.contentEl.querySelectorAll("[data-calendar-task]")].find((button) => button.dataset.calendarTask === filePath);
+      target?.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+    });
+  }
+
   calendarMonthHtml(monthKey, tasks) {
     const [year, month] = monthKey.split("-").map(Number);
     const dayCount = new Date(year, month, 0).getDate();
@@ -610,7 +626,7 @@ class PlanningBoardView extends ItemView {
     const dueToday = this.isDueToday(task);
     const overdue = this.isOverdue(task);
     return `
-      <article class="action-task-card${complete ? " is-complete" : ""}${dueToday ? " is-due-today" : ""}${overdue ? " is-overdue" : ""}${selectionActive ? " is-archive-selectable" : ""}${selectedForArchive ? " is-archive-selected" : ""}" data-task-file="${task.file.path}" data-task-key="${this.taskKey(task)}" data-task-archive-key="${task.archiveKey}" data-task-status="${task.status}"${selectionActive ? ` role="checkbox" tabindex="0" aria-checked="${selectedForArchive}"` : ""}>
+      <article class="action-task-card${complete ? " is-complete" : ""}${dueToday ? " is-due-today" : ""}${overdue ? " is-overdue" : ""}${selectionActive ? " is-archive-selectable" : ""}${selectedForArchive ? " is-archive-selected" : ""}" data-task-file="${task.file.path}" data-task-key="${this.taskKey(task)}" data-task-archive-key="${task.archiveKey}" data-task-status="${task.status}" data-task-due="${task.due}"${selectionActive ? ` role="checkbox" tabindex="0" aria-checked="${selectedForArchive}"` : ""}>
         <div class="action-task-top">
           <span class="action-type-badge action-type-${typeClass(task.type)}">${typeLabel(task.type)}</span>
           ${task.due ? `<time datetime="${isIsoDate(task.due) ? task.due : ""}"${dueToday ? ' class="today-date"' : ""}>${dueToday ? "今日 " : ""}${task.due}</time>` : '<span class="action-floating-date">期限未定</span>'}
@@ -793,6 +809,7 @@ class TaskCardModal extends Modal {
     super(app);
     this.view = view;
     this.filePath = filePath;
+    this.initialFilePath = filePath;
     this.statusOverrides = new Map();
   }
 
@@ -835,6 +852,13 @@ class TaskCardModal extends Modal {
     head.createSpan({ cls: "mini-label", text: group?.window || task.groupWindow || "時期未定" });
     head.createEl("h2", { text: group?.title || task.groupTitle || task.group || "未分類" });
     if (group?.note) head.createEl("p", { text: group.note });
+    if (this.initialFilePath !== this.filePath) {
+      head.createEl("button", {
+        cls: "pbn-modal-origin-return",
+        text: "最初のタスクに戻る",
+        attr: { type: "button", "data-modal-task-switch": this.initialFilePath },
+      });
+    }
     const body = this.contentEl.createDiv({ cls: "pbn-modal-task-body" });
     const focus = body.createDiv({ cls: "pbn-modal-task-focus" });
     focus.innerHTML = this.view.taskCard(task);
@@ -842,7 +866,12 @@ class TaskCardModal extends Modal {
       const details = body.createEl("details", { cls: "pbn-modal-related-tasks" });
       details.createEl("summary", { text: "カテゴリの他タスクを見る" });
       const grid = details.createDiv({ cls: "deadline-task-grid" });
-      grid.innerHTML = relatedTasks.map((item) => this.view.taskCard(item)).join("");
+      grid.innerHTML = relatedTasks.map((item) => `
+        <div class="pbn-modal-related-task">
+          ${this.view.taskCard(item)}
+          <button class="pbn-modal-task-switch" type="button" data-modal-task-switch="${escapeAttribute(item.file.path)}">このタスクを見る</button>
+        </div>
+      `).join("");
     }
   }
 
@@ -856,14 +885,13 @@ class TaskCardModal extends Modal {
     this.statusOverrides.set(file.path, status);
     this.applyCardCompletion(card, checkbox.checked, status);
     await this.view.updateFrontmatter(file, { status });
-    this.filePath = file.path;
     await this.view.render();
-    this.renderContent();
+    this.applyCardCompletion(card, checkbox.checked, status);
   }
 
   applyCardCompletion(card, checked, status) {
     card.classList.toggle("is-complete", checked);
-    card.classList.toggle("is-overdue", card.classList.contains("is-overdue") && !checked);
+    card.classList.toggle("is-overdue", isIsoDate(card.dataset.taskDue) && card.dataset.taskDue < todayIso() && !checked);
     card.dataset.taskStatus = status;
     const checkbox = card.querySelector("[data-task-complete]");
     if (checkbox) checkbox.checked = checked;
@@ -877,6 +905,11 @@ class TaskCardModal extends Modal {
   }
 
   handleClick(event) {
+    const switchButton = event.target.closest?.("[data-modal-task-switch]");
+    if (switchButton) {
+      this.switchTask(switchButton.dataset.modalTaskSwitch);
+      return;
+    }
     const detail = event.target.closest?.("[data-task-detail]");
     if (detail) {
       const file = this.app.vault.getAbstractFileByPath(detail.dataset.taskDetail);
@@ -888,6 +921,15 @@ class TaskCardModal extends Modal {
       const file = this.app.vault.getAbstractFileByPath(open.dataset.taskOpen);
       if (file) this.app.workspace.getLeaf("tab").openFile(file);
     }
+  }
+
+  async switchTask(filePath) {
+    const file = this.app.vault.getAbstractFileByPath(filePath || "");
+    if (!file) return;
+    this.filePath = file.path;
+    await this.view.render();
+    this.renderContent();
+    this.view.scrollMonthToTask(file.path);
   }
 
   onClose() {

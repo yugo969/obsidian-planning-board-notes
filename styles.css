@@ -472,9 +472,10 @@
   place-items: center;
   width: 24px;
   height: 24px;
-  border: 1px solid var(--board-border);
-  border-radius: 8px;
+  border: 2px solid color-mix(in srgb, var(--text-normal) 58%, var(--board-border));
+  border-radius: 7px;
   background: var(--background-primary);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-normal) 12%, transparent);
 }
 
 .action-complete-control span::after {
@@ -506,6 +507,23 @@
   font-size: 15px;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.task-detail-body .task-support-actions button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--board-accent);
+  font-weight: 700;
+  padding: 3px 0;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--board-accent) 32%, transparent);
+  text-underline-offset: 4px;
+}
+
+.task-detail-body .task-support-actions button:hover,
+.task-detail-body .task-support-actions button:focus-visible {
+  background: transparent;
+  text-decoration-color: currentColor;
 }
 
 .task-detail-toggle {
@@ -734,6 +752,8 @@
 }
 
 .pbn-modal-related-tasks summary {
+  display: inline-flex;
+  align-items: center;
   width: fit-content;
   cursor: pointer;
   color: var(--board-accent);
@@ -746,6 +766,61 @@
 
 .pbn-modal-related-tasks .deadline-task-grid {
   margin-top: 12px;
+}
+
+.pbn-modal-related-task {
+  display: grid;
+  gap: 8px;
+}
+
+.pbn-modal-task-switch,
+.pbn-modal-origin-return {
+  appearance: none;
+  width: fit-content;
+  min-height: 34px;
+  color: var(--board-accent);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.pbn-modal-task-switch {
+  justify-self: end;
+  border: 1px solid color-mix(in srgb, var(--board-accent) 26%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--board-accent) 6%, var(--background-primary));
+  padding: 7px 12px;
+}
+
+.pbn-modal-task-switch:hover,
+.pbn-modal-task-switch:focus-visible {
+  background: color-mix(in srgb, var(--board-accent) 12%, var(--background-primary));
+  border-color: color-mix(in srgb, var(--board-accent) 42%, transparent);
+}
+
+.pbn-modal-origin-return {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  margin-top: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--board-accent) 32%, transparent);
+  text-underline-offset: 4px;
+}
+
+.pbn-modal-origin-return::before {
+  content: "←";
+  font-weight: 800;
+}
+
+.pbn-modal-origin-return:hover,
+.pbn-modal-origin-return:focus-visible {
+  text-decoration-color: currentColor;
 }
 
 @container planning-board-notes (max-width: 760px) {
