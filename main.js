@@ -524,7 +524,6 @@ class PlanningBoardView extends ItemView {
       <section class="calendar-panel">
         <div class="calendar-head">
           <div>
-            <span class="mini-label">月表示</span>
             <h3>${year}年${month}月</h3>
           </div>
           <div class="calendar-head-meta">

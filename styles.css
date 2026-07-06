@@ -175,26 +175,28 @@
 
 .action-board-view {
   display: grid;
-  gap: 16px;
+  gap: 0;
 }
 
 .deadline-group {
-  border: 1px solid var(--board-border);
-  border-radius: 8px;
-  background: var(--background-secondary);
-  padding: 14px;
+  border-top: 1px solid var(--board-border);
+  border-radius: 0;
+  background: transparent;
+  padding: 14px 0 16px;
 }
 
 .calendar-panel,
 .week-lane {
-  border: 1px solid var(--board-border);
-  border-radius: 8px;
-  background: var(--background-secondary);
-  padding: 14px;
+  border-top: 1px solid var(--board-border);
+  border-radius: 0;
+  background: transparent;
+  padding: 14px 0 16px;
 }
 
-.calendar-panel {
-  padding: 5px;
+.deadline-group:last-child,
+.calendar-panel:last-child,
+.week-lane:last-child {
+  border-bottom: 1px solid var(--board-border);
 }
 
 .deadline-group.is-archived {
@@ -859,16 +861,16 @@
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     gap: 8px;
-    inline-size: calc(100% + 28px);
-    max-inline-size: calc(100% + 28px);
+    inline-size: 100%;
+    max-inline-size: 100%;
     margin-block: -14px 12px;
-    margin-inline: -14px;
+    margin-inline: 0;
     padding-block: 10px;
     padding-inline: 12px;
     border-bottom: 1px solid var(--board-border);
-    border-radius: 8px 8px 6px 6px;
-    background: var(--background-secondary);
-    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.08);
+    border-radius: 0 0 6px 6px;
+    background: color-mix(in srgb, var(--background-primary) 88%, var(--background-secondary));
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.06);
   }
 
   .deadline-group-head > div:first-child {
@@ -916,10 +918,6 @@
 
   .deadline-task-grid {
     grid-template-columns: 1fr;
-  }
-
-  .calendar-panel {
-    padding: 3px;
   }
 
   .calendar-weekdays,
