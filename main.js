@@ -925,10 +925,19 @@ class TaskCardModal extends Modal {
       this.switchTask(switchButton.dataset.modalTaskSwitch);
       return;
     }
+    const taskMemo = event.target.closest?.("[data-task-memo]");
+    if (taskMemo) {
+      const file = this.app.vault.getAbstractFileByPath(taskMemo.dataset.taskMemo);
+      if (file) new GroupMemoModal(this.app, file).open();
+      return;
+    }
     const open = event.target.closest?.("[data-task-open]");
     if (open) {
       const file = this.app.vault.getAbstractFileByPath(open.dataset.taskOpen);
-      if (file) this.app.workspace.getLeaf("tab").openFile(file);
+      if (file) {
+        this.close();
+        this.app.workspace.getLeaf("tab").openFile(file);
+      }
     }
   }
 
