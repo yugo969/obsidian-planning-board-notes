@@ -266,6 +266,7 @@ class PlanningBoardView extends ItemView {
         due: safeValue(fm.due, ""),
         text: safeValue(fm.summary || fm.text, ""),
         source: safeValue(fm.source, ""),
+        memoLabel: safeValue(fm.memo_label, ""),
         archived: fm.archived === true,
         order: Number(fm.order || 9999),
         groupOrder: Number(fm.group_order || 9999),
@@ -684,6 +685,7 @@ class PlanningBoardView extends ItemView {
               <p>${task.source}</p>
             </div>
             <div class="task-support-actions">
+              ${task.memoLabel ? `<button type="button" data-task-memo="${task.file.path}">${task.memoLabel}</button>` : ""}
               <button type="button" data-task-open="${task.file.path}">ノート</button>
             </div>
           </div>
@@ -754,6 +756,12 @@ class PlanningBoardView extends ItemView {
     if (calendarTask) {
       const file = this.app.vault.getAbstractFileByPath(calendarTask.dataset.calendarTask);
       if (file) new TaskCardModal(this.app, this, file.path).open();
+      return;
+    }
+    const taskMemo = event.target.closest?.("[data-task-memo]");
+    if (taskMemo) {
+      const file = this.app.vault.getAbstractFileByPath(taskMemo.dataset.taskMemo);
+      if (file) new GroupMemoModal(this.app, file).open();
       return;
     }
     const taskOpen = event.target.closest?.("[data-task-open]");
