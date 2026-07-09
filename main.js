@@ -139,14 +139,14 @@ class PlanningBoardNotesPlugin extends Plugin {
     this.settings = Object.assign(
       {
         collapsedGroups: {},
-        uiState: { collapsedGroups: {}, openTaskDetails: {}, archivedGroups: {}, archivedTasks: {} },
+        uiState: { collapsedGroups: {}, openTaskDetails: {} },
         syncEndpoint: DEFAULT_SYNC_ENDPOINT,
         syncSite: DEFAULT_SYNC_SITE,
         syncPasscode: "",
       },
       await this.loadData()
     );
-    this.settings.uiState = Object.assign({ collapsedGroups: {}, openTaskDetails: {}, archivedGroups: {}, archivedTasks: {} }, this.settings.uiState || {});
+    this.settings.uiState = this.normalizeUiState(this.settings.uiState);
     await this.loadRemoteUiState();
     this.registerView(VIEW_TYPE, (leaf) => new PlanningBoardView(leaf, this));
 
@@ -202,6 +202,13 @@ class PlanningBoardNotesPlugin extends Plugin {
     return Boolean(this.settings.syncEndpoint && this.settings.syncSite);
   }
 
+  normalizeUiState(uiState) {
+    return {
+      collapsedGroups: { ...(uiState?.collapsedGroups || {}) },
+      openTaskDetails: { ...(uiState?.openTaskDetails || {}) },
+    };
+  }
+
   async loadRemoteUiState() {
     if (!this.syncEnabled()) return false;
     if (!this.settings.syncPasscode) return false;
@@ -218,7 +225,7 @@ class PlanningBoardNotesPlugin extends Plugin {
       }
       if (!response.ok) throw new Error(`UI state load failed: ${response.status}`);
       const data = await response.json();
-      this.settings.uiState = Object.assign({ collapsedGroups: {}, openTaskDetails: {}, archivedGroups: {}, archivedTasks: {} }, data.uiState || {});
+      this.settings.uiState = this.normalizeUiState(data.uiState);
       this.settings.collapsedGroups = this.settings.uiState.collapsedGroups || {};
       await this.saveData(this.settings);
       return true;
@@ -234,7 +241,7 @@ class PlanningBoardNotesPlugin extends Plugin {
   }
 
   async saveUiStateValue(scope, key, value) {
-    this.settings.uiState = Object.assign({ collapsedGroups: {}, openTaskDetails: {}, archivedGroups: {}, archivedTasks: {} }, this.settings.uiState || {});
+    this.settings.uiState = this.normalizeUiState(this.settings.uiState);
     this.settings.uiState[scope] = Object.assign({}, this.settings.uiState[scope] || {});
     if (value === null) {
       delete this.settings.uiState[scope][key];
@@ -284,13 +291,6 @@ class PlanningBoardNotesPlugin extends Plugin {
     await this.saveUiStateValue("openTaskDetails", key, open ? true : null);
   }
 
-  async setGroupArchived(key, archived) {
-    await this.saveUiStateValue("archivedGroups", key, archived === true);
-  }
-
-  async setTaskArchived(key, archived) {
-    await this.saveUiStateValue("archivedTasks", key, archived === true);
-  }
 }
 
 class SyncCodeModal extends Modal {
@@ -463,15 +463,10 @@ class PlanningBoardView extends ItemView {
   }
 
   isGroupArchived(group) {
-    const key = this.groupArchiveKey(group);
-    const remoteValue = this.plugin.settings?.uiState?.archivedGroups?.[key];
-    if (typeof remoteValue === "boolean") return remoteValue;
     return group.archived === true;
   }
 
   isTaskArchived(task) {
-    const remoteValue = this.plugin.settings?.uiState?.archivedTasks?.[task.archiveKey];
-    if (typeof remoteValue === "boolean") return remoteValue;
     return task.archived === true;
   }
 
@@ -942,11 +937,6 @@ class PlanningBoardView extends ItemView {
       if (!group?.file) return;
       const archived = !group.archived;
       await this.updateFrontmatter(group.file, { archived });
-      try {
-        await this.plugin.setGroupArchived(this.groupArchiveKey(group), archived);
-      } catch (error) {
-        console.warn(error);
-      }
       this.clearTaskArchiveSelection();
       await this.renderPreservingScroll();
       return;
@@ -1016,11 +1006,6 @@ class PlanningBoardView extends ItemView {
     const selected = visibleGroups.flatMap((group) => group.tasks).filter((task) => this.selectedTaskArchiveKeys.has(task.archiveKey));
     for (const task of selected) {
       await this.updateFrontmatter(task.file, { archived: archive });
-      try {
-        await this.plugin.setTaskArchived(task.archiveKey, archive);
-      } catch (error) {
-        console.warn(error);
-      }
     }
     this.clearTaskArchiveSelection();
     await this.renderPreservingScroll();
