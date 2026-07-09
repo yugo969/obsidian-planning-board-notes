@@ -248,24 +248,29 @@ class PlanningBoardNotesPlugin extends Plugin {
 
     if (!this.syncEnabled() || !this.settings.syncPasscode) return false;
 
-    const response = await fetch(this.settings.syncEndpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Task-Passcode": this.settings.syncPasscode,
-      },
-      body: JSON.stringify({
-        site: this.settings.syncSite,
-        action: "setUiStateValue",
-        uiStateScope: scope,
-        uiStateKey: key,
-        uiStateValue: value,
-      }),
-    });
-    if (!response.ok) {
-      if (response.status === 401) this.settings.syncPasscode = "";
-      await this.saveData(this.settings);
-      console.warn(`UI state save failed: ${response.status}`);
+    try {
+      const response = await fetch(this.settings.syncEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Task-Passcode": this.settings.syncPasscode,
+        },
+        body: JSON.stringify({
+          site: this.settings.syncSite,
+          action: "setUiStateValue",
+          uiStateScope: scope,
+          uiStateKey: key,
+          uiStateValue: value,
+        }),
+      });
+      if (!response.ok) {
+        if (response.status === 401) this.settings.syncPasscode = "";
+        await this.saveData(this.settings);
+        console.warn(`UI state save failed: ${response.status}`);
+        return false;
+      }
+    } catch (error) {
+      console.warn("UI state save failed", error);
       return false;
     }
     return true;
@@ -902,7 +907,6 @@ class PlanningBoardView extends ItemView {
       await this.plugin.setTaskDetailOpen(card.dataset.taskKey, details.open);
     } catch (error) {
       console.warn(error);
-      new Notice("表示状態の同期に失敗しました。同期コードを確認してください。");
     }
   }
 
@@ -942,7 +946,6 @@ class PlanningBoardView extends ItemView {
         await this.plugin.setGroupArchived(this.groupArchiveKey(group), archived);
       } catch (error) {
         console.warn(error);
-        new Notice("アーカイブ状態の同期に失敗しました。同期コードを確認してください。");
       }
       this.clearTaskArchiveSelection();
       await this.renderPreservingScroll();
@@ -956,7 +959,6 @@ class PlanningBoardView extends ItemView {
         await this.plugin.setGroupCollapsed(group.dataset.groupStateKey, collapsed);
       } catch (error) {
         console.warn(error);
-        new Notice("表示状態の同期に失敗しました。同期コードを確認してください。");
       }
       await this.renderPreservingScroll();
       return;
@@ -1018,7 +1020,6 @@ class PlanningBoardView extends ItemView {
         await this.plugin.setTaskArchived(task.archiveKey, archive);
       } catch (error) {
         console.warn(error);
-        new Notice("アーカイブ状態の同期に失敗しました。同期コードを確認してください。");
       }
     }
     this.clearTaskArchiveSelection();
@@ -1145,7 +1146,6 @@ class TaskCardModal extends Modal {
       await this.view.plugin.setTaskDetailOpen(card.dataset.taskKey, details.open);
     } catch (error) {
       console.warn(error);
-      new Notice("表示状態の同期に失敗しました。同期コードを確認してください。");
     }
   }
 
