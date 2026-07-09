@@ -204,10 +204,18 @@ class PlanningBoardNotesPlugin extends Plugin {
 
   async loadRemoteUiState() {
     if (!this.syncEnabled()) return false;
+    if (!this.settings.syncPasscode) return false;
     try {
       const url = new URL(this.settings.syncEndpoint);
       url.searchParams.set("site", this.settings.syncSite);
-      const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+      const response = await fetch(url.toString(), {
+        headers: { Accept: "application/json", "X-Task-Passcode": this.settings.syncPasscode },
+      });
+      if (response.status === 401) {
+        this.settings.syncPasscode = "";
+        await this.saveData(this.settings);
+        return false;
+      }
       if (!response.ok) throw new Error(`UI state load failed: ${response.status}`);
       const data = await response.json();
       this.settings.uiState = Object.assign({ collapsedGroups: {}, openTaskDetails: {}, archivedGroups: {}, archivedTasks: {} }, data.uiState || {});
@@ -257,7 +265,8 @@ class PlanningBoardNotesPlugin extends Plugin {
     if (!response.ok) {
       if (response.status === 401) this.settings.syncPasscode = "";
       await this.saveData(this.settings);
-      throw new Error(`UI state save failed: ${response.status}`);
+      console.warn(`UI state save failed: ${response.status}`);
+      return false;
     }
     return true;
   }
