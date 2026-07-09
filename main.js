@@ -11,6 +11,8 @@ const {
 const VIEW_TYPE = "planning-board-notes-view";
 const TASK_FOLDER = "Planning Board/Tasks";
 const GROUP_FOLDER = "Planning Board/Groups";
+const DEFAULT_SYNC_ENDPOINT = "https://yugo-planning-board-task-api.netlify.app/.netlify/functions/task-status";
+const DEFAULT_SYNC_SITE = "planning-board";
 const STATUSES = ["未着手", "進行中", "保留", "完了"];
 const TYPES = ["やること", "決めること", "確認すること"];
 
@@ -134,7 +136,18 @@ function getFrontmatter(app, file) {
 
 class PlanningBoardNotesPlugin extends Plugin {
   async onload() {
-    this.settings = Object.assign({ collapsedGroups: {} }, await this.loadData());
+    this.settings = Object.assign(
+      {
+        collapsedGroups: {},
+        uiState: { collapsedGroups: {}, openTaskDetails: {} },
+        syncEndpoint: DEFAULT_SYNC_ENDPOINT,
+        syncSite: DEFAULT_SYNC_SITE,
+        syncPasscode: "",
+      },
+      await this.loadData()
+    );
+    this.settings.uiState = Object.assign({ collapsedGroups: {}, openTaskDetails: {} }, this.settings.uiState || {});
+    await this.loadRemoteUiState();
     this.registerView(VIEW_TYPE, (leaf) => new PlanningBoardView(leaf, this));
 
     this.addRibbonIcon("layout-dashboard", "Planning Board Notes", () => {
@@ -145,6 +158,22 @@ class PlanningBoardNotesPlugin extends Plugin {
       id: "open-planning-board-notes",
       name: "Open Planning Board Notes",
       callback: () => this.activateView(),
+    });
+
+    this.addCommand({
+      id: "set-planning-board-sync-code",
+      name: "Set Planning Board sync code",
+      callback: () => new SyncCodeModal(this.app, this).open(),
+    });
+
+    this.addCommand({
+      id: "reload-planning-board-ui-state",
+      name: "Reload Planning Board UI state",
+      callback: async () => {
+        await this.loadRemoteUiState();
+        await this.refreshViews();
+        new Notice("Planning Boardの表示状態を再読み込みしました。");
+      },
     });
 
     this.registerEvent(
@@ -163,9 +192,117 @@ class PlanningBoardNotesPlugin extends Plugin {
     this.app.workspace.revealLeaf(leaf);
   }
 
-  async setGroupCollapsed(key, collapsed) {
-    this.settings.collapsedGroups[key] = collapsed === true;
+  async refreshViews() {
+    await Promise.all(
+      this.app.workspace.getLeavesOfType(VIEW_TYPE).map((leaf) => leaf.view?.render?.())
+    );
+  }
+
+  syncEnabled() {
+    return Boolean(this.settings.syncEndpoint && this.settings.syncSite);
+  }
+
+  async loadRemoteUiState() {
+    if (!this.syncEnabled()) return false;
+    try {
+      const url = new URL(this.settings.syncEndpoint);
+      url.searchParams.set("site", this.settings.syncSite);
+      const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error(`UI state load failed: ${response.status}`);
+      const data = await response.json();
+      this.settings.uiState = Object.assign({ collapsedGroups: {}, openTaskDetails: {} }, data.uiState || {});
+      this.settings.collapsedGroups = this.settings.uiState.collapsedGroups || {};
+      await this.saveData(this.settings);
+      return true;
+    } catch (error) {
+      console.warn(error);
+      return false;
+    }
+  }
+
+  async setSyncPasscode(passcode) {
+    this.settings.syncPasscode = passcode;
     await this.saveData(this.settings);
+  }
+
+  async saveUiStateValue(scope, key, value) {
+    this.settings.uiState = Object.assign({ collapsedGroups: {}, openTaskDetails: {} }, this.settings.uiState || {});
+    this.settings.uiState[scope] = Object.assign({}, this.settings.uiState[scope] || {});
+    if (value === null) {
+      delete this.settings.uiState[scope][key];
+    } else {
+      this.settings.uiState[scope][key] = value;
+    }
+    if (scope === "collapsedGroups") {
+      this.settings.collapsedGroups = this.settings.uiState.collapsedGroups;
+    }
+    await this.saveData(this.settings);
+
+    if (!this.syncEnabled() || !this.settings.syncPasscode) return false;
+
+    const response = await fetch(this.settings.syncEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Task-Passcode": this.settings.syncPasscode,
+      },
+      body: JSON.stringify({
+        site: this.settings.syncSite,
+        action: "setUiStateValue",
+        uiStateScope: scope,
+        uiStateKey: key,
+        uiStateValue: value,
+      }),
+    });
+    if (!response.ok) {
+      if (response.status === 401) this.settings.syncPasscode = "";
+      await this.saveData(this.settings);
+      throw new Error(`UI state save failed: ${response.status}`);
+    }
+    return true;
+  }
+
+  async setGroupCollapsed(key, collapsed) {
+    await this.saveUiStateValue("collapsedGroups", key, collapsed === true);
+  }
+
+  async setTaskDetailOpen(key, open) {
+    await this.saveUiStateValue("openTaskDetails", key, open ? true : null);
+  }
+}
+
+class SyncCodeModal extends Modal {
+  constructor(app, plugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.addClass("pbn-modal");
+    contentEl.createEl("h2", { text: "表示状態の同期コード" });
+    contentEl.createEl("p", {
+      text: "Web版の進捗同期と同じコードを入れると、カテゴリ開閉とタスク詳細の開閉状態を同期できます。",
+    });
+    const input = contentEl.createEl("input", {
+      type: "password",
+      value: this.plugin.settings.syncPasscode || "",
+      attr: { autocomplete: "current-password", "aria-label": "同期コード" },
+    });
+    const actions = contentEl.createDiv({ cls: "pbn-modal-actions" });
+    actions.createEl("button", { text: "キャンセル", attr: { type: "button" } }).addEventListener("click", () => this.close());
+    actions.createEl("button", { text: "保存", attr: { type: "button" } }).addEventListener("click", async () => {
+      await this.plugin.setSyncPasscode(input.value.trim());
+      await this.plugin.loadRemoteUiState();
+      await this.plugin.refreshViews();
+      new Notice("Planning Boardの表示状態同期コードを保存しました。");
+      this.close();
+    });
+    input.focus();
+  }
+
+  onClose() {
+    this.contentEl.empty();
   }
 }
 
@@ -199,6 +336,8 @@ class PlanningBoardView extends ItemView {
     this.contentEl.addEventListener("click", (event) => this.handleClick(event));
     this.contentEl.addEventListener("change", (event) => this.handleChange(event));
     this.contentEl.addEventListener("keydown", (event) => this.handleKeydown(event));
+    this.contentEl.addEventListener("toggle", (event) => this.handleToggle(event), true);
+    await this.plugin.loadRemoteUiState();
     await this.render();
   }
 
@@ -294,7 +433,11 @@ class PlanningBoardView extends ItemView {
   }
 
   isGroupCollapsed(group) {
-    return this.plugin.settings?.collapsedGroups?.[this.groupStateKey(group)] === true;
+    return this.plugin.settings?.uiState?.collapsedGroups?.[this.groupStateKey(group)] === true;
+  }
+
+  isTaskDetailOpen(task) {
+    return this.plugin.settings?.uiState?.openTaskDetails?.[this.taskKey(task)] === true;
   }
 
   displayStatus(task) {
@@ -421,6 +564,12 @@ class PlanningBoardView extends ItemView {
       this.showArchivedGroups = !this.showArchivedGroups;
       this.renderPreservingScroll();
     });
+    const syncButton = filters.createEl("button", {
+      cls: `action-type-filter${this.plugin.settings.syncPasscode ? " is-active" : ""}`,
+      text: this.plugin.settings.syncPasscode ? "表示同期中" : "同期コード",
+      attr: { type: "button", "aria-pressed": String(Boolean(this.plugin.settings.syncPasscode)) },
+    });
+    syncButton.addEventListener("click", () => new SyncCodeModal(this.app, this.plugin).open());
   }
 
   renderTodayContext(root, tasks) {
@@ -676,7 +825,7 @@ class PlanningBoardView extends ItemView {
           <span aria-hidden="true"></span>
           <strong>${task.title}</strong>
         </label>
-        <details class="task-detail-toggle" ${complete ? "" : "open"}>
+        <details class="task-detail-toggle" ${this.isTaskDetailOpen(task) ? "open" : ""}>
           <summary>詳細</summary>
           <div class="task-detail-body">
             <p class="action-task-text">${task.text}</p>
@@ -705,8 +854,22 @@ class PlanningBoardView extends ItemView {
     const file = this.app.vault.getAbstractFileByPath(card?.dataset.taskFile || "");
     if (!file) return;
     const status = checkbox.checked ? "完了" : "未着手";
+    if (checkbox.checked) await this.plugin.setTaskDetailOpen(card.dataset.taskKey, false);
     await this.updateFrontmatter(file, { status });
     await this.renderPreservingScroll();
+  }
+
+  async handleToggle(event) {
+    const details = event.target.closest?.(".task-detail-toggle");
+    if (!details) return;
+    const card = details.closest("[data-task-key]");
+    if (!card) return;
+    try {
+      await this.plugin.setTaskDetailOpen(card.dataset.taskKey, details.open);
+    } catch (error) {
+      console.warn(error);
+      new Notice("表示状態の同期に失敗しました。同期コードを確認してください。");
+    }
   }
 
   async handleClick(event) {
@@ -748,7 +911,12 @@ class PlanningBoardView extends ItemView {
     if (collapseButton) {
       const group = collapseButton.closest("[data-group-state-key]");
       const collapsed = !group.classList.contains("is-collapsed");
-      await this.plugin.setGroupCollapsed(group.dataset.groupStateKey, collapsed);
+      try {
+        await this.plugin.setGroupCollapsed(group.dataset.groupStateKey, collapsed);
+      } catch (error) {
+        console.warn(error);
+        new Notice("表示状態の同期に失敗しました。同期コードを確認してください。");
+      }
       await this.renderPreservingScroll();
       return;
     }
@@ -833,6 +1001,7 @@ class TaskCardModal extends Modal {
     contentEl.addClass("pbn-modal", "pbn-task-card-modal");
     contentEl.addEventListener("change", (event) => this.handleChange(event));
     contentEl.addEventListener("click", (event) => this.handleClick(event));
+    contentEl.addEventListener("toggle", (event) => this.handleToggle(event), true);
     this.renderContent();
   }
 
@@ -898,6 +1067,7 @@ class TaskCardModal extends Modal {
     if (!file) return;
     const status = checkbox.checked ? "完了" : "未着手";
     this.statusOverrides.set(file.path, status);
+    if (checkbox.checked) await this.view.plugin.setTaskDetailOpen(card.dataset.taskKey, false);
     this.applyCardCompletion(card, checkbox.checked, status);
     await this.view.updateFrontmatter(file, { status });
     await this.view.renderPreservingScroll();
@@ -911,11 +1081,24 @@ class TaskCardModal extends Modal {
     const checkbox = card.querySelector("[data-task-complete]");
     if (checkbox) checkbox.checked = checked;
     const details = card.querySelector(".task-detail-toggle");
-    if (details) details.open = !checked;
+    if (details && checked) details.open = false;
     const badge = card.querySelector(".action-status");
     if (badge) {
       badge.className = `action-status action-status-${statusClass(status)}`;
       badge.textContent = status;
+    }
+  }
+
+  async handleToggle(event) {
+    const details = event.target.closest?.(".task-detail-toggle");
+    if (!details) return;
+    const card = details.closest("[data-task-key]");
+    if (!card) return;
+    try {
+      await this.view.plugin.setTaskDetailOpen(card.dataset.taskKey, details.open);
+    } catch (error) {
+      console.warn(error);
+      new Notice("表示状態の同期に失敗しました。同期コードを確認してください。");
     }
   }
 
