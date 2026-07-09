@@ -4,6 +4,7 @@ const {
   Modal,
   Notice,
   Plugin,
+  requestUrl,
   setIcon,
   TFile,
 } = require("obsidian");
@@ -215,7 +216,9 @@ class PlanningBoardNotesPlugin extends Plugin {
     try {
       const url = new URL(this.settings.syncEndpoint);
       url.searchParams.set("site", this.settings.syncSite);
-      const response = await fetch(url.toString(), {
+      const response = await requestUrl({
+        url: url.toString(),
+        method: "GET",
         headers: { Accept: "application/json", "X-Task-Passcode": this.settings.syncPasscode },
       });
       if (response.status === 401) {
@@ -223,8 +226,8 @@ class PlanningBoardNotesPlugin extends Plugin {
         await this.saveData(this.settings);
         return false;
       }
-      if (!response.ok) throw new Error(`UI state load failed: ${response.status}`);
-      const data = await response.json();
+      if (response.status < 200 || response.status >= 300) throw new Error(`UI state load failed: ${response.status}`);
+      const data = response.json;
       this.settings.uiState = this.normalizeUiState(data.uiState);
       this.settings.collapsedGroups = this.settings.uiState.collapsedGroups || {};
       await this.saveData(this.settings);
@@ -256,7 +259,8 @@ class PlanningBoardNotesPlugin extends Plugin {
     if (!this.syncEnabled() || !this.settings.syncPasscode) return false;
 
     try {
-      const response = await fetch(this.settings.syncEndpoint, {
+      const response = await requestUrl({
+        url: this.settings.syncEndpoint,
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -270,7 +274,7 @@ class PlanningBoardNotesPlugin extends Plugin {
           uiStateValue: value,
         }),
       });
-      if (!response.ok) {
+      if (response.status < 200 || response.status >= 300) {
         if (response.status === 401) this.settings.syncPasscode = "";
         await this.saveData(this.settings);
         console.warn(`UI state save failed: ${response.status}`);
