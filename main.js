@@ -999,6 +999,9 @@ class PlanningBoardView extends ItemView {
       .filter((item) => item !== draggingItem)
       .find((item) => {
         const rect = item.getBoundingClientRect();
+        if (type === "group") {
+          return y < rect.top + rect.height / 2;
+        }
         const sameRow = y >= rect.top && y <= rect.bottom;
         if (sameRow) return x < rect.left + rect.width / 2;
         return y < rect.top + rect.height / 2;
@@ -1026,9 +1029,11 @@ class PlanningBoardView extends ItemView {
     event.preventDefault();
     drag.item.setPointerCapture?.(event.pointerId);
     this.activeDrag = { ...drag, ...this.createSortGhost(drag.item, event), pointerId: event.pointerId };
+    this.updateSortGhost(this.activeDrag, event);
     drag.item.classList.add("is-sort-dragging");
     drag.container.classList.add("is-sort-active");
     this.containerEl.addClass("is-sorting-board");
+    document.body.classList.add("is-sorting-board");
   }
 
   handlePointerMove(event) {
@@ -1055,6 +1060,7 @@ class PlanningBoardView extends ItemView {
     drag.item.classList.remove("is-sort-dragging");
     drag.container.classList.remove("is-sort-active");
     this.containerEl.removeClass("is-sorting-board");
+    document.body.classList.remove("is-sorting-board");
     await this.saveDraggedOrder(drag);
     await this.renderPreservingScroll();
   }

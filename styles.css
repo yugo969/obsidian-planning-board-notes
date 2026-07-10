@@ -215,10 +215,21 @@
 
 .deadline-group-title-row,
 .action-task-meta {
-  display: inline-flex;
+  display: flex;
   min-width: 0;
   align-items: center;
   gap: 8px;
+}
+
+.deadline-group-head > div:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.deadline-group-title-row {
+  width: 100%;
+  min-height: 44px;
+  border-radius: 8px;
 }
 
 .deadline-group-title-row > div {
@@ -248,9 +259,11 @@
   left: 0;
   z-index: 10000;
   pointer-events: none;
-  opacity: 0.94;
+  box-sizing: border-box;
+  opacity: 0.96;
   box-shadow: 0 22px 48px rgb(0 0 0 / 18%);
   transform-origin: top left;
+  will-change: transform;
 }
 
 .is-sort-active > [data-sortable-group],
@@ -259,6 +272,8 @@
 }
 
 .is-sorting-board {
+  overflow: hidden;
+  overscroll-behavior: contain;
   user-select: none;
 }
 
