@@ -438,7 +438,7 @@ class PlanningBoardView extends ItemView {
       };
     });
     groups.sort((a, b) => a.order - b.order || dueTime(a.period) - dueTime(b.period));
-    tasks.sort((a, b) => a.groupOrder - b.groupOrder || dueTime(a.due) - dueTime(b.due) || a.order - b.order);
+    tasks.sort((a, b) => a.groupOrder - b.groupOrder || a.order - b.order || dueTime(a.due) - dueTime(b.due));
     return { groups, tasks };
   }
 
