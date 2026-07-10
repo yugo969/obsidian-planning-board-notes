@@ -863,13 +863,6 @@ class PlanningBoardView extends ItemView {
     root.querySelectorAll("[data-collapse-icon]").forEach((icon) => {
       setIcon(icon, icon.dataset.collapseIcon);
     });
-    root.querySelectorAll("[data-sort-drag-handle]").forEach((icon) => {
-      setIcon(icon, "grip-vertical");
-    });
-  }
-
-  dragHandle(label) {
-    return `<button class="sort-drag-handle" type="button" data-sort-drag-handle aria-label="${label}"></button>`;
   }
 
   groupHtml(group) {
@@ -882,7 +875,6 @@ class PlanningBoardView extends ItemView {
         <div class="deadline-group-head">
           <div>
             <div class="deadline-group-title-row">
-              ${sortable ? this.dragHandle(`${group.title}を並び替え`) : ""}
               <div>
                 <span class="mini-label">${group.window || group.period || "時期未定"}</span>
                 <h3 title="${group.title}">${group.title}</h3>
@@ -917,10 +909,7 @@ class PlanningBoardView extends ItemView {
     return `
       <article class="action-task-card${complete ? " is-complete" : ""}${dueToday ? " is-due-today" : ""}${overdue ? " is-overdue" : ""}${selectionActive ? " is-archive-selectable" : ""}${selectedForArchive ? " is-archive-selected" : ""}" data-task-file="${task.file.path}" data-task-key="${this.taskKey(task)}" data-task-archive-key="${task.archiveKey}" data-task-status="${task.status}" data-task-due="${task.due}"${sortable ? ` data-sortable-task="${escapeAttribute(this.taskKey(task))}"` : ""}${selectionActive ? ` role="checkbox" tabindex="0" aria-checked="${selectedForArchive}"` : ""}>
         <div class="action-task-top">
-          <span class="action-task-meta">
-            ${sortable ? this.dragHandle(`${task.title}を並び替え`) : ""}
-            <span class="action-type-badge action-type-${typeClass(task.type)}">${typeLabel(task.type)}</span>
-          </span>
+          <span class="action-type-badge action-type-${typeClass(task.type)}">${typeLabel(task.type)}</span>
           ${task.due ? `<time datetime="${isIsoDate(task.due) ? task.due : ""}"${dueToday ? ' class="today-date"' : ""}>${dueToday ? "今日 " : ""}${task.due}</time>` : '<span class="action-floating-date">期限未定</span>'}
         </div>
         <label class="action-complete-control">
@@ -950,8 +939,14 @@ class PlanningBoardView extends ItemView {
     `;
   }
 
-  sortableItemFromHandle(handle) {
-    const task = handle.closest("[data-sortable-task]");
+  isInteractiveSortTarget(target) {
+    return Boolean(target.closest("button, input, select, textarea, a, summary, label, details, .task-detail-body"));
+  }
+
+  sortableItemFromPointer(target) {
+    if (this.isInteractiveSortTarget(target)) return null;
+
+    const task = target.closest("[data-sortable-task]");
     if (task) {
       const container = task.closest("[data-task-sort-group]");
       return {
@@ -962,8 +957,9 @@ class PlanningBoardView extends ItemView {
       };
     }
 
-    const group = handle.closest("[data-sortable-group]");
-    if (group) {
+    const groupTitle = target.closest(".deadline-group-title-row");
+    const group = groupTitle?.closest("[data-sortable-group]");
+    if (group && groupTitle) {
       return {
         type: "group",
         item: group,
@@ -973,6 +969,25 @@ class PlanningBoardView extends ItemView {
     }
 
     return null;
+  }
+
+  createSortGhost(item, event) {
+    const rect = item.getBoundingClientRect();
+    const ghost = item.cloneNode(true);
+    ghost.classList.add("sort-drag-ghost");
+    ghost.style.width = `${rect.width}px`;
+    ghost.style.minHeight = `${rect.height}px`;
+    ghost.style.transform = `translate3d(${rect.left}px, ${rect.top}px, 0)`;
+    document.body.append(ghost);
+    return {
+      ghost,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+    };
+  }
+
+  updateSortGhost(drag, event) {
+    drag.ghost.style.transform = `translate3d(${event.clientX - drag.offsetX}px, ${event.clientY - drag.offsetY}px, 0)`;
   }
 
   sortableItems(container, type) {
@@ -1003,15 +1018,14 @@ class PlanningBoardView extends ItemView {
   }
 
   handlePointerDown(event) {
-    const handle = event.target.closest?.("[data-sort-drag-handle]");
-    if (!handle || !this.canReorderBoard()) return;
+    if (!this.canReorderBoard()) return;
 
-    const drag = this.sortableItemFromHandle(handle);
+    const drag = this.sortableItemFromPointer(event.target);
     if (!drag?.item || !drag.container) return;
 
     event.preventDefault();
-    handle.setPointerCapture?.(event.pointerId);
-    this.activeDrag = { ...drag, handle, pointerId: event.pointerId };
+    drag.item.setPointerCapture?.(event.pointerId);
+    this.activeDrag = { ...drag, ...this.createSortGhost(drag.item, event), pointerId: event.pointerId };
     drag.item.classList.add("is-sort-dragging");
     drag.container.classList.add("is-sort-active");
     this.containerEl.addClass("is-sorting-board");
@@ -1020,6 +1034,7 @@ class PlanningBoardView extends ItemView {
   handlePointerMove(event) {
     if (!this.activeDrag) return;
     event.preventDefault();
+    this.updateSortGhost(this.activeDrag, event);
     const before = this.itemBeforePointer(
       this.activeDrag.container,
       this.activeDrag.type,
@@ -1035,7 +1050,8 @@ class PlanningBoardView extends ItemView {
     event.preventDefault();
     const drag = this.activeDrag;
     this.activeDrag = null;
-    drag.handle.releasePointerCapture?.(drag.pointerId);
+    drag.item.releasePointerCapture?.(drag.pointerId);
+    drag.ghost.remove();
     drag.item.classList.remove("is-sort-dragging");
     drag.container.classList.remove("is-sort-active");
     this.containerEl.removeClass("is-sorting-board");
