@@ -141,7 +141,7 @@ class PlanningBoardNotesPlugin extends Plugin {
     this.settings = Object.assign(
       {
         collapsedGroups: {},
-        uiState: { collapsedGroups: {}, openTaskDetails: {}, groupOrder: {}, taskOrder: {} },
+        uiState: { collapsedGroups: {}, openTaskDetails: {}, groupOrder: {}, taskOrder: {}, archivedGroups: {}, archivedTasks: {} },
         syncEndpoint: DEFAULT_SYNC_ENDPOINT,
         syncSite: DEFAULT_SYNC_SITE,
         syncPasscode: "",
@@ -210,6 +210,8 @@ class PlanningBoardNotesPlugin extends Plugin {
       openTaskDetails: { ...(uiState?.openTaskDetails || {}) },
       groupOrder: { ...(uiState?.groupOrder || {}) },
       taskOrder: { ...(uiState?.taskOrder || {}) },
+      archivedGroups: { ...(uiState?.archivedGroups || {}) },
+      archivedTasks: { ...(uiState?.archivedTasks || {}) },
     };
   }
 
@@ -511,10 +513,14 @@ class PlanningBoardView extends ItemView {
   }
 
   isGroupArchived(group) {
+    const remoteArchived = this.plugin.settings?.uiState?.archivedGroups?.[this.groupArchiveKey(group)];
+    if (typeof remoteArchived === "boolean") return remoteArchived;
     return group.archived === true;
   }
 
   isTaskArchived(task) {
+    const remoteArchived = this.plugin.settings?.uiState?.archivedTasks?.[task.archiveKey];
+    if (typeof remoteArchived === "boolean") return remoteArchived;
     return task.archived === true;
   }
 
@@ -597,8 +603,7 @@ class PlanningBoardView extends ItemView {
           totalTaskCount: allGroupTasks.length,
         };
       })
-      .filter((group) => group.tasks.length > 0)
-      .sort((a, b) => a.order - b.order || dueTime(a.period) - dueTime(b.period));
+      .filter((group) => group.tasks.length > 0);
   }
 
   clearTaskArchiveSelection() {
