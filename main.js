@@ -975,6 +975,12 @@ class PlanningBoardView extends ItemView {
     const rect = item.getBoundingClientRect();
     const ghost = item.cloneNode(true);
     ghost.classList.add("sort-drag-ghost");
+    ghost.style.position = "fixed";
+    ghost.style.top = "0";
+    ghost.style.left = "0";
+    ghost.style.zIndex = "10000";
+    ghost.style.pointerEvents = "none";
+    ghost.style.margin = "0";
     ghost.style.width = `${rect.width}px`;
     ghost.style.minHeight = `${rect.height}px`;
     ghost.style.transform = `translate3d(${rect.left}px, ${rect.top}px, 0)`;
