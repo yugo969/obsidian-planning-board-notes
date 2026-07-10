@@ -16,6 +16,7 @@ const DEFAULT_SYNC_ENDPOINT = "https://yugo-planning-board-task-api.netlify.app/
 const DEFAULT_SYNC_SITE = "planning-board";
 const STATUSES = ["未着手", "進行中", "保留", "完了"];
 const TYPES = ["やること", "決めること", "確認すること"];
+const BOARD_GROUP_ORDER_KEY = "deadline-groups";
 
 function statusClass(status) {
   return {
@@ -140,7 +141,7 @@ class PlanningBoardNotesPlugin extends Plugin {
     this.settings = Object.assign(
       {
         collapsedGroups: {},
-        uiState: { collapsedGroups: {}, openTaskDetails: {} },
+        uiState: { collapsedGroups: {}, openTaskDetails: {}, groupOrder: {}, taskOrder: {} },
         syncEndpoint: DEFAULT_SYNC_ENDPOINT,
         syncSite: DEFAULT_SYNC_SITE,
         syncPasscode: "",
@@ -207,6 +208,8 @@ class PlanningBoardNotesPlugin extends Plugin {
     return {
       collapsedGroups: { ...(uiState?.collapsedGroups || {}) },
       openTaskDetails: { ...(uiState?.openTaskDetails || {}) },
+      groupOrder: { ...(uiState?.groupOrder || {}) },
+      taskOrder: { ...(uiState?.taskOrder || {}) },
     };
   }
 
@@ -295,6 +298,14 @@ class PlanningBoardNotesPlugin extends Plugin {
     await this.saveUiStateValue("openTaskDetails", key, open ? true : null);
   }
 
+  async setGroupOrder(orderedKeys) {
+    await this.saveUiStateValue("groupOrder", BOARD_GROUP_ORDER_KEY, orderedKeys);
+  }
+
+  async setTaskOrder(groupKey, orderedKeys) {
+    await this.saveUiStateValue("taskOrder", groupKey, orderedKeys);
+  }
+
 }
 
 class SyncCodeModal extends Modal {
@@ -343,6 +354,7 @@ class PlanningBoardView extends ItemView {
     this.taskArchiveSelectionMode = null;
     this.selectedTaskArchiveKeys = new Set();
     this.currentView = "deadline";
+    this.activeDrag = null;
   }
 
   getViewType() {
@@ -363,6 +375,10 @@ class PlanningBoardView extends ItemView {
     this.contentEl.addEventListener("change", (event) => this.handleChange(event));
     this.contentEl.addEventListener("keydown", (event) => this.handleKeydown(event));
     this.contentEl.addEventListener("toggle", (event) => this.handleToggle(event), true);
+    this.contentEl.addEventListener("pointerdown", (event) => this.handlePointerDown(event));
+    this.contentEl.addEventListener("pointermove", (event) => this.handlePointerMove(event));
+    this.contentEl.addEventListener("pointerup", (event) => this.handlePointerUp(event));
+    this.contentEl.addEventListener("pointercancel", (event) => this.handlePointerUp(event));
     await this.plugin.loadRemoteUiState();
     await this.render();
   }
@@ -440,6 +456,34 @@ class PlanningBoardView extends ItemView {
     groups.sort((a, b) => a.order - b.order || dueTime(a.period) - dueTime(b.period));
     tasks.sort((a, b) => a.groupOrder - b.groupOrder || a.order - b.order || dueTime(a.due) - dueTime(b.due));
     return { groups, tasks };
+  }
+
+  canReorderBoard() {
+    return (
+      this.currentView === "deadline" &&
+      !this.showArchivedGroups &&
+      this.activeTypes.size === 0 &&
+      this.activeStatuses.size === 0 &&
+      !this.taskArchiveSelectionMode
+    );
+  }
+
+  orderState(scope, key) {
+    const value = this.plugin.settings?.uiState?.[scope]?.[key];
+    return Array.isArray(value) ? value : [];
+  }
+
+  applySavedOrder(items, keyForItem, savedKeys) {
+    if (!Array.isArray(savedKeys) || savedKeys.length === 0) return items;
+    const indexByKey = new Map(savedKeys.map((key, index) => [key, index]));
+    return [...items].sort((a, b) => {
+      const aIndex = indexByKey.get(keyForItem(a));
+      const bIndex = indexByKey.get(keyForItem(b));
+      if (aIndex === undefined && bIndex === undefined) return 0;
+      if (aIndex === undefined) return 1;
+      if (bIndex === undefined) return -1;
+      return aIndex - bIndex;
+    });
   }
 
   groupStateKey(group) {
@@ -528,10 +572,14 @@ class PlanningBoardView extends ItemView {
       }
       byTitle.get(task.group).allTasks.push(task);
     });
-    return [...byTitle.values()]
+    return this.applySavedOrder([...byTitle.values()], (group) => this.groupStateKey(group), this.orderState("groupOrder", BOARD_GROUP_ORDER_KEY))
       .map((group) => {
         const archived = this.isGroupArchived(group);
-        const allGroupTasks = group.allTasks.map((task) => this.taskWithGroup(group, task));
+        const allGroupTasks = this.applySavedOrder(
+          group.allTasks.map((task) => this.taskWithGroup(group, task)),
+          (task) => this.taskKey(task),
+          this.orderState("taskOrder", this.groupStateKey(group))
+        );
         const archivedTasks = allGroupTasks.filter((task) => task.archived);
         const activeTasks = allGroupTasks.filter((task) => !task.archived);
         const tasks = this.showArchivedGroups
@@ -815,18 +863,31 @@ class PlanningBoardView extends ItemView {
     root.querySelectorAll("[data-collapse-icon]").forEach((icon) => {
       setIcon(icon, icon.dataset.collapseIcon);
     });
+    root.querySelectorAll("[data-sort-drag-handle]").forEach((icon) => {
+      setIcon(icon, "grip-vertical");
+    });
+  }
+
+  dragHandle(label) {
+    return `<button class="sort-drag-handle" type="button" data-sort-drag-handle aria-label="${label}"></button>`;
   }
 
   groupHtml(group) {
     const collapsed = this.isGroupCollapsed(group);
     const stateKey = this.groupStateKey(group);
     const archiveKey = this.groupArchiveKey(group);
+    const sortable = this.canReorderBoard();
     return `
-      <section class="deadline-group${collapsed ? " is-collapsed" : ""}${group.archived ? " is-archived" : ""}" data-group-state-key="${stateKey}" data-group-archive-key="${archiveKey}">
+      <section class="deadline-group${collapsed ? " is-collapsed" : ""}${group.archived ? " is-archived" : ""}" data-group-state-key="${stateKey}" data-group-archive-key="${archiveKey}"${sortable ? ` data-sortable-group="${escapeAttribute(stateKey)}"` : ""}>
         <div class="deadline-group-head">
           <div>
-            <span class="mini-label">${group.window || group.period || "時期未定"}</span>
-            <h3 title="${group.title}">${group.title}</h3>
+            <div class="deadline-group-title-row">
+              ${sortable ? this.dragHandle(`${group.title}を並び替え`) : ""}
+              <div>
+                <span class="mini-label">${group.window || group.period || "時期未定"}</span>
+                <h3 title="${group.title}">${group.title}</h3>
+              </div>
+            </div>
           </div>
           <div class="deadline-head-meta">
             ${this.progressSummary(group.tasks, group.title)}
@@ -838,7 +899,7 @@ class PlanningBoardView extends ItemView {
         </div>
         <p>${group.note || ""} ${group.file && group.memoLabel ? `<button class="group-memo-button" type="button" data-group-file="${group.file.path}">${group.memoLabel}</button>` : ""}</p>
         ${this.archiveSelectionPanel(group)}
-        <div class="deadline-task-grid" ${collapsed ? "hidden" : ""}>
+        <div class="deadline-task-grid" ${collapsed ? "hidden" : ""} data-task-sort-group="${escapeAttribute(stateKey)}">
           ${group.tasks.map((task) => this.taskCard(task)).join("")}
         </div>
       </section>
@@ -852,10 +913,14 @@ class PlanningBoardView extends ItemView {
     const selectedForArchive = this.selectedTaskArchiveKeys.has(task.archiveKey);
     const dueToday = this.isDueToday(task);
     const overdue = this.isOverdue(task);
+    const sortable = this.canReorderBoard();
     return `
-      <article class="action-task-card${complete ? " is-complete" : ""}${dueToday ? " is-due-today" : ""}${overdue ? " is-overdue" : ""}${selectionActive ? " is-archive-selectable" : ""}${selectedForArchive ? " is-archive-selected" : ""}" data-task-file="${task.file.path}" data-task-key="${this.taskKey(task)}" data-task-archive-key="${task.archiveKey}" data-task-status="${task.status}" data-task-due="${task.due}"${selectionActive ? ` role="checkbox" tabindex="0" aria-checked="${selectedForArchive}"` : ""}>
+      <article class="action-task-card${complete ? " is-complete" : ""}${dueToday ? " is-due-today" : ""}${overdue ? " is-overdue" : ""}${selectionActive ? " is-archive-selectable" : ""}${selectedForArchive ? " is-archive-selected" : ""}" data-task-file="${task.file.path}" data-task-key="${this.taskKey(task)}" data-task-archive-key="${task.archiveKey}" data-task-status="${task.status}" data-task-due="${task.due}"${sortable ? ` data-sortable-task="${escapeAttribute(this.taskKey(task))}"` : ""}${selectionActive ? ` role="checkbox" tabindex="0" aria-checked="${selectedForArchive}"` : ""}>
         <div class="action-task-top">
-          <span class="action-type-badge action-type-${typeClass(task.type)}">${typeLabel(task.type)}</span>
+          <span class="action-task-meta">
+            ${sortable ? this.dragHandle(`${task.title}を並び替え`) : ""}
+            <span class="action-type-badge action-type-${typeClass(task.type)}">${typeLabel(task.type)}</span>
+          </span>
           ${task.due ? `<time datetime="${isIsoDate(task.due) ? task.due : ""}"${dueToday ? ' class="today-date"' : ""}>${dueToday ? "今日 " : ""}${task.due}</time>` : '<span class="action-floating-date">期限未定</span>'}
         </div>
         <label class="action-complete-control">
@@ -883,6 +948,99 @@ class PlanningBoardView extends ItemView {
         </div>
       </article>
     `;
+  }
+
+  sortableItemFromHandle(handle) {
+    const task = handle.closest("[data-sortable-task]");
+    if (task) {
+      const container = task.closest("[data-task-sort-group]");
+      return {
+        type: "task",
+        item: task,
+        container,
+        groupKey: container?.dataset.taskSortGroup || "",
+      };
+    }
+
+    const group = handle.closest("[data-sortable-group]");
+    if (group) {
+      return {
+        type: "group",
+        item: group,
+        container: group.parentElement,
+        groupKey: "",
+      };
+    }
+
+    return null;
+  }
+
+  sortableItems(container, type) {
+    return [...container.querySelectorAll(type === "group" ? "[data-sortable-group]" : "[data-sortable-task]")];
+  }
+
+  itemBeforePointer(container, type, x, y, draggingItem) {
+    return this.sortableItems(container, type)
+      .filter((item) => item !== draggingItem)
+      .find((item) => {
+        const rect = item.getBoundingClientRect();
+        const sameRow = y >= rect.top && y <= rect.bottom;
+        if (sameRow) return x < rect.left + rect.width / 2;
+        return y < rect.top + rect.height / 2;
+      });
+  }
+
+  async saveDraggedOrder(drag) {
+    if (drag.type === "group") {
+      await this.plugin.setGroupOrder(this.sortableItems(drag.container, "group").map((item) => item.dataset.sortableGroup));
+      return;
+    }
+
+    await this.plugin.setTaskOrder(
+      drag.groupKey,
+      this.sortableItems(drag.container, "task").map((item) => item.dataset.sortableTask)
+    );
+  }
+
+  handlePointerDown(event) {
+    const handle = event.target.closest?.("[data-sort-drag-handle]");
+    if (!handle || !this.canReorderBoard()) return;
+
+    const drag = this.sortableItemFromHandle(handle);
+    if (!drag?.item || !drag.container) return;
+
+    event.preventDefault();
+    handle.setPointerCapture?.(event.pointerId);
+    this.activeDrag = { ...drag, handle, pointerId: event.pointerId };
+    drag.item.classList.add("is-sort-dragging");
+    drag.container.classList.add("is-sort-active");
+    this.containerEl.addClass("is-sorting-board");
+  }
+
+  handlePointerMove(event) {
+    if (!this.activeDrag) return;
+    event.preventDefault();
+    const before = this.itemBeforePointer(
+      this.activeDrag.container,
+      this.activeDrag.type,
+      event.clientX,
+      event.clientY,
+      this.activeDrag.item
+    );
+    this.activeDrag.container.insertBefore(this.activeDrag.item, before || null);
+  }
+
+  async handlePointerUp(event) {
+    if (!this.activeDrag) return;
+    event.preventDefault();
+    const drag = this.activeDrag;
+    this.activeDrag = null;
+    drag.handle.releasePointerCapture?.(drag.pointerId);
+    drag.item.classList.remove("is-sort-dragging");
+    drag.container.classList.remove("is-sort-active");
+    this.containerEl.removeClass("is-sorting-board");
+    await this.saveDraggedOrder(drag);
+    await this.renderPreservingScroll();
   }
 
   async handleChange(event) {

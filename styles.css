@@ -213,6 +213,58 @@
   margin-bottom: 10px;
 }
 
+.deadline-group-title-row,
+.action-task-meta {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.deadline-group-title-row > div {
+  min-width: 0;
+}
+
+.sort-drag-handle {
+  appearance: none;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--board-border);
+  border-radius: 7px;
+  background: var(--background-primary);
+  color: var(--text-muted);
+  cursor: grab;
+  touch-action: none;
+}
+
+.sort-drag-handle:active,
+.is-sort-dragging .sort-drag-handle {
+  cursor: grabbing;
+}
+
+.sort-drag-handle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.is-sort-dragging {
+  opacity: 0.72;
+  outline: 2px solid color-mix(in srgb, var(--interactive-accent) 32%, transparent);
+}
+
+.is-sort-active > [data-sortable-group],
+.is-sort-active > [data-sortable-task] {
+  transition: transform 120ms ease;
+}
+
+.is-sorting-board {
+  user-select: none;
+}
+
 .deadline-group h3,
 .calendar-head h3 {
   margin: 2px 0 0;
