@@ -163,8 +163,12 @@
 .overdue-task-item {
   appearance: none;
   display: grid;
-  gap: 7px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: 1fr;
+  align-items: center;
+  gap: 8px;
   width: 100%;
+  min-height: 44px;
   border: 1px solid var(--board-border);
   border-left: 3px solid var(--board-warn);
   border-radius: 7px;
@@ -172,7 +176,7 @@
   color: var(--text-normal);
   cursor: pointer;
   font: inherit;
-  padding: 9px 10px;
+  padding: 6px 8px;
   text-align: left;
 }
 
@@ -185,13 +189,17 @@
 }
 
 .overdue-task-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  display: contents;
+}
+
+.overdue-task-meta .action-type-badge {
+  grid-column: 1;
+  grid-row: 1;
 }
 
 .overdue-task-meta time {
+  grid-column: 3;
+  grid-row: 1;
   flex: 0 0 auto;
   color: var(--board-muted);
   font-size: 11px;
@@ -199,8 +207,14 @@
 }
 
 .overdue-task-item strong {
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .action-type-filter-list {

@@ -716,7 +716,7 @@ class PlanningBoardView extends ItemView {
                       ? `<span class="overdue-task-list" id="overdue-task-popover" aria-label="期限超過したタスク">
                           ${overdueTasks
                             .map(
-                              (task) => `<button class="overdue-task-item" type="button" data-overdue-task="${escapeAttribute(task.file.path)}">
+                              (task) => `<button class="overdue-task-item" type="button" data-overdue-task="${escapeAttribute(task.file.path)}" title="${escapeAttribute(task.title)}">
                                 <span class="overdue-task-meta">
                                   <span class="action-type-badge action-type-${typeClass(task.type)}">${typeLabel(task.type)}</span>
                                   <time datetime="${task.due}">${task.due}</time>
