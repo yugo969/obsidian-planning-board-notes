@@ -357,6 +357,8 @@ class PlanningBoardView extends ItemView {
     this.selectedTaskArchiveKeys = new Set();
     this.currentView = "deadline";
     this.activeDrag = null;
+    this.overdueListOpen = false;
+    this.focusedTaskFilePath = null;
   }
 
   getViewType() {
@@ -624,7 +626,7 @@ class PlanningBoardView extends ItemView {
     });
     const views = root.createDiv({ cls: "action-view-tabs", attr: { role: "tablist", "aria-label": "表示切替" } });
     [
-      ["deadline", "期限カード"],
+      ["deadline", "タスクリスト"],
       ["month", "月表示"],
       ["week", "週表示"],
     ].forEach(([view, label]) => {
@@ -634,10 +636,15 @@ class PlanningBoardView extends ItemView {
         text: label,
         attr: { type: "button", role: "tab", "aria-selected": String(active) },
       });
-      button.addEventListener("click", () => {
+      button.addEventListener("click", async () => {
         this.currentView = view;
         this.clearTaskArchiveSelection();
-        this.renderPreservingScroll();
+        if (this.focusedTaskFilePath) {
+          await this.render();
+          this.scrollFocusedTaskIntoView();
+        } else {
+          await this.renderPreservingScroll();
+        }
       });
     });
     const filters = root.createDiv({ cls: "action-type-filter-list" });
@@ -666,21 +673,44 @@ class PlanningBoardView extends ItemView {
   renderTodayContext(root, tasks) {
     const today = todayIso();
     const todayTasks = tasks.filter((task) => task.due === today);
-    const overdueTasks = tasks.filter((task) => this.isOverdue(task));
+    const overdueTasks = tasks.filter((task) => this.isOverdue(task)).sort((a, b) => dueTime(a.due) - dueTime(b.due));
     const nextTask = tasks
       .filter((task) => isIsoDate(task.due) && task.due > today && !this.isTaskComplete(task))
       .sort((a, b) => a.due.localeCompare(b.due))[0];
     const context = root.createDiv({ cls: "today-context", attr: { "aria-live": "polite" } });
     context.innerHTML = `
-      <div>
-        <span class="today-context-label">本日</span>
-        <strong>${formatDateJa(today)}</strong>
+      <div class="today-context-summary">
+        <div>
+          <span class="today-context-label">本日</span>
+          <strong>${formatDateJa(today)}</strong>
+        </div>
+        <div class="today-context-meta">
+          <span>本日 ${todayTasks.length}件</span>
+          ${
+            overdueTasks.length
+              ? `<button class="today-context-chip overdue-summary-toggle" type="button" data-overdue-toggle aria-expanded="${this.overdueListOpen}">期限超過 ${overdueTasks.length}件</button>`
+              : '<span>期限超過 0件</span>'
+          }
+          ${nextTask ? `<span>次: ${nextTask.due}</span>` : ""}
+        </div>
       </div>
-      <div class="today-context-meta">
-        <span>本日 ${todayTasks.length}件</span>
-        <span>期限超過 ${overdueTasks.length}件</span>
-        ${nextTask ? `<span>次: ${nextTask.due}</span>` : ""}
-      </div>
+      ${
+        this.overdueListOpen && overdueTasks.length
+          ? `<div class="overdue-task-list" aria-label="期限超過したタスク">
+              ${overdueTasks
+                .map(
+                  (task) => `<button class="overdue-task-item" type="button" data-overdue-task="${escapeAttribute(task.file.path)}">
+                    <span class="overdue-task-meta">
+                      <span class="action-type-badge action-type-${typeClass(task.type)}">${typeLabel(task.type)}</span>
+                      <time datetime="${task.due}">${task.due}</time>
+                    </span>
+                    <strong>${task.title}</strong>
+                  </button>`
+                )
+                .join("")}
+            </div>`
+          : ""
+      }
     `;
   }
 
@@ -794,7 +824,7 @@ class PlanningBoardView extends ItemView {
             </div>
             <div class="calendar-day-items">
               ${dayTasks
-                .map((task) => `<button class="calendar-task-pill action-type-${typeClass(task.type)}${this.isTaskComplete(task) ? " is-complete" : ""}" type="button" data-calendar-task="${task.file.path}" title="${task.title}">${task.title}</button>`)
+                .map((task) => `<button class="calendar-task-pill action-type-${typeClass(task.type)}${this.isTaskComplete(task) ? " is-complete" : ""}${this.focusedTaskFilePath === task.file.path ? " is-task-focused" : ""}" type="button" data-calendar-task="${task.file.path}" title="${task.title}">${task.title}</button>`)
                 .join("")}
             </div>
           </article>
@@ -912,7 +942,7 @@ class PlanningBoardView extends ItemView {
     const overdue = this.isOverdue(task);
     const sortable = this.canReorderBoard();
     return `
-      <article class="action-task-card${complete ? " is-complete" : ""}${dueToday ? " is-due-today" : ""}${overdue ? " is-overdue" : ""}${selectionActive ? " is-archive-selectable" : ""}${selectedForArchive ? " is-archive-selected" : ""}" data-task-file="${task.file.path}" data-task-key="${this.taskKey(task)}" data-task-archive-key="${task.archiveKey}" data-task-status="${task.status}" data-task-due="${task.due}"${sortable ? ` data-sortable-task="${escapeAttribute(this.taskKey(task))}"` : ""}${selectionActive ? ` role="checkbox" tabindex="0" aria-checked="${selectedForArchive}"` : ""}>
+      <article class="action-task-card${complete ? " is-complete" : ""}${dueToday ? " is-due-today" : ""}${overdue ? " is-overdue" : ""}${this.focusedTaskFilePath === task.file.path ? " is-task-focused" : ""}${selectionActive ? " is-archive-selectable" : ""}${selectedForArchive ? " is-archive-selected" : ""}" data-task-file="${task.file.path}" data-task-key="${this.taskKey(task)}" data-task-archive-key="${task.archiveKey}" data-task-status="${task.status}" data-task-due="${task.due}"${sortable ? ` data-sortable-task="${escapeAttribute(this.taskKey(task))}"` : ""}${this.focusedTaskFilePath === task.file.path ? ' tabindex="-1"' : ""}${selectionActive ? ` role="checkbox" tabindex="0" aria-checked="${selectedForArchive}"` : ""}>
         <div class="action-task-top">
           <span class="action-type-badge action-type-${typeClass(task.type)}">${typeLabel(task.type)}</span>
           ${task.due ? `<time datetime="${isIsoDate(task.due) ? task.due : ""}"${dueToday ? ' class="today-date"' : ""}>${dueToday ? "今日 " : ""}${task.due}</time>` : '<span class="action-floating-date">期限未定</span>'}
@@ -1101,6 +1131,16 @@ class PlanningBoardView extends ItemView {
   }
 
   async handleClick(event) {
+    if (event.target.closest?.("[data-overdue-toggle]")) {
+      this.overdueListOpen = !this.overdueListOpen;
+      await this.renderPreservingScroll();
+      return;
+    }
+    const overdueTask = event.target.closest?.("[data-overdue-task]");
+    if (overdueTask) {
+      await this.focusTask(overdueTask.dataset.overdueTask);
+      return;
+    }
     const selectCard = event.target.closest?.("[data-task-archive-key]");
     if (selectCard && this.taskArchiveSelectionGroupKey && selectCard.closest("[data-group-archive-key]")?.dataset.groupArchiveKey === this.taskArchiveSelectionGroupKey && !event.target.closest("summary, button, input")) {
       this.toggleSelectedArchiveKey(selectCard.dataset.taskArchiveKey);
@@ -1212,6 +1252,38 @@ class PlanningBoardView extends ItemView {
         frontmatter[key] = value;
       });
     });
+  }
+
+  scrollFocusedTaskIntoView() {
+    if (!this.focusedTaskFilePath) return;
+    requestAnimationFrame(() => {
+      const selector = this.currentView === "month" ? "[data-calendar-task]" : "[data-task-file]";
+      const target = [...this.contentEl.querySelectorAll(selector)].find((element) =>
+        this.currentView === "month"
+          ? element.dataset.calendarTask === this.focusedTaskFilePath
+          : element.dataset.taskFile === this.focusedTaskFilePath
+      );
+      if (!target) return;
+      target.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+      target.focus({ preventScroll: true });
+    });
+  }
+
+  async focusTask(filePath) {
+    const { groups, tasks } = this.loadModels();
+    const task = tasks.find((item) => item.file.path === filePath);
+    const group = task ? groups.find((item) => item.title === task.group) : null;
+    if (!task || !group) return;
+    this.activeTypes.clear();
+    this.activeStatuses.clear();
+    this.clearTaskArchiveSelection();
+    this.overdueListOpen = false;
+    this.focusedTaskFilePath = filePath;
+    if (this.currentView === "deadline" && this.isGroupCollapsed(group)) {
+      await this.plugin.setGroupCollapsed(this.groupStateKey(group), false);
+    }
+    await this.render();
+    this.scrollFocusedTaskIntoView();
   }
 }
 

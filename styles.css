@@ -71,6 +71,15 @@
   padding: 10px 12px;
 }
 
+.today-context-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+}
+
 .today-context strong {
   color: var(--text-normal);
 }
@@ -99,10 +108,74 @@
   gap: 6px;
 }
 
-.today-context-meta span {
+.today-context-meta span,
+.today-context-chip {
   padding: 4px 7px;
   background: var(--background-primary);
   color: var(--board-muted);
+}
+
+.today-context-chip {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.today-context-chip:hover,
+.today-context-chip:focus-visible,
+.today-context-chip[aria-expanded="true"] {
+  color: var(--text-normal);
+  outline: 2px solid var(--board-accent);
+  outline-offset: 1px;
+}
+
+.overdue-task-list {
+  display: grid;
+  width: 100%;
+  gap: 7px;
+  padding-top: 10px;
+  border-top: 1px solid var(--board-border);
+}
+
+.overdue-task-item {
+  appearance: none;
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  border: 1px solid var(--board-border);
+  border-left: 3px solid var(--board-warn);
+  border-radius: 7px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  cursor: pointer;
+  font: inherit;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.overdue-task-item:hover,
+.overdue-task-item:focus-visible {
+  border-color: var(--board-warn);
+  background: var(--background-modifier-hover);
+  outline: 2px solid var(--board-warn);
+  outline-offset: 1px;
+}
+
+.overdue-task-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.overdue-task-meta time {
+  color: var(--board-muted);
+  font-size: 11px;
 }
 
 .action-type-filter-list {
@@ -454,6 +527,14 @@
 
 .action-task-card.is-overdue:not(.is-complete) {
   border-left-color: var(--board-warn);
+}
+
+.action-task-card.is-task-focused,
+.calendar-task-pill.is-task-focused {
+  outline: 3px solid var(--board-accent);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 7px color-mix(in srgb, var(--board-accent) 14%, transparent);
+  scroll-margin: 72px 12px;
 }
 
 .action-task-card.is-complete {
