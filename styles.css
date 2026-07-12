@@ -1205,6 +1205,11 @@
   }
 }
 
+body.is-phone .planning-board-notes-root .overdue-task-list {
+  bottom: calc(var(--view-bottom-spacing, 100px) + 12px);
+  max-height: min(60dvh, calc(100dvh - var(--view-bottom-spacing, 100px) - 36px));
+}
+
 @media (max-width: 760px) {
   .modal:has(.pbn-task-detail-modal),
   .modal:has(.pbn-task-card-modal) {
