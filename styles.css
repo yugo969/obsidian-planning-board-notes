@@ -85,7 +85,7 @@
 }
 
 .today-context-label,
-.today-context-meta span,
+.today-context-meta > span:not(.overdue-popover-anchor),
 .calendar-today-label {
   display: inline-flex;
   align-items: center;
@@ -108,7 +108,7 @@
   gap: 6px;
 }
 
-.today-context-meta span,
+.today-context-meta > span:not(.overdue-popover-anchor),
 .today-context-chip {
   padding: 4px 7px;
   background: var(--background-primary);
@@ -134,12 +134,30 @@
   outline-offset: 1px;
 }
 
+.overdue-popover-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
 .overdue-task-list {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  z-index: 80;
   display: grid;
-  width: 100%;
+  box-sizing: border-box;
+  width: min(340px, calc(100vw - 36px));
+  max-height: min(420px, calc(100dvh - 140px));
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   gap: 7px;
-  padding-top: 10px;
-  border-top: 1px solid var(--board-border);
+  padding: 8px;
+  border: 1px solid var(--board-border);
+  border-radius: 9px;
+  background: var(--background-primary);
+  box-shadow: 0 14px 34px rgb(0 0 0 / 24%);
+  -webkit-overflow-scrolling: touch;
 }
 
 .overdue-task-item {
@@ -174,8 +192,15 @@
 }
 
 .overdue-task-meta time {
+  flex: 0 0 auto;
   color: var(--board-muted);
   font-size: 11px;
+  white-space: nowrap;
+}
+
+.overdue-task-item strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .action-type-filter-list {
@@ -535,6 +560,18 @@
   outline-offset: 3px;
   box-shadow: 0 0 0 7px color-mix(in srgb, var(--board-accent) 14%, transparent);
   scroll-margin: 72px 12px;
+  animation: pbn-task-focus-highlight 2.5s ease-out forwards;
+}
+
+@keyframes pbn-task-focus-highlight {
+  0%, 55% {
+    outline-color: var(--board-accent);
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--board-accent) 14%, transparent);
+  }
+  100% {
+    outline-color: transparent;
+    box-shadow: 0 0 0 7px transparent;
+  }
 }
 
 .action-task-card.is-complete {
@@ -1006,6 +1043,20 @@
 }
 
 @container planning-board-notes (max-width: 760px) {
+  .overdue-task-list {
+    position: fixed;
+    top: auto;
+    right: auto;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: 50%;
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+    max-height: min(60dvh, 520px);
+    border-radius: 12px;
+    padding: 10px;
+    transform: translateX(-50%);
+  }
+
   .planning-board-notes {
     max-width: 100%;
     overflow-x: hidden;

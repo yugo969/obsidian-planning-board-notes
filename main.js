@@ -359,6 +359,7 @@ class PlanningBoardView extends ItemView {
     this.activeDrag = null;
     this.overdueListOpen = false;
     this.focusedTaskFilePath = null;
+    this.focusClearTimer = null;
   }
 
   getViewType() {
@@ -383,8 +384,17 @@ class PlanningBoardView extends ItemView {
     this.contentEl.addEventListener("pointermove", (event) => this.handlePointerMove(event));
     this.contentEl.addEventListener("pointerup", (event) => this.handlePointerUp(event));
     this.contentEl.addEventListener("pointercancel", (event) => this.handlePointerUp(event));
+    this.registerDomEvent(document, "click", (event) => {
+      if (!this.overdueListOpen || event.target.closest?.(".overdue-popover-anchor")) return;
+      this.overdueListOpen = false;
+      void this.renderPreservingScroll();
+    });
     await this.plugin.loadRemoteUiState();
     await this.render();
+  }
+
+  async onClose() {
+    window.clearTimeout(this.focusClearTimer);
   }
 
   async render() {
@@ -688,29 +698,31 @@ class PlanningBoardView extends ItemView {
           <span>本日 ${todayTasks.length}件</span>
           ${
             overdueTasks.length
-              ? `<button class="today-context-chip overdue-summary-toggle" type="button" data-overdue-toggle aria-expanded="${this.overdueListOpen}">期限超過 ${overdueTasks.length}件</button>`
+              ? `<span class="overdue-popover-anchor">
+                  <button class="today-context-chip overdue-summary-toggle" type="button" data-overdue-toggle aria-expanded="${this.overdueListOpen}" aria-controls="overdue-task-popover">期限超過 ${overdueTasks.length}件</button>
+                  ${
+                    this.overdueListOpen
+                      ? `<span class="overdue-task-list" id="overdue-task-popover" aria-label="期限超過したタスク">
+                          ${overdueTasks
+                            .map(
+                              (task) => `<button class="overdue-task-item" type="button" data-overdue-task="${escapeAttribute(task.file.path)}">
+                                <span class="overdue-task-meta">
+                                  <span class="action-type-badge action-type-${typeClass(task.type)}">${typeLabel(task.type)}</span>
+                                  <time datetime="${task.due}">${task.due}</time>
+                                </span>
+                                <strong>${task.title}</strong>
+                              </button>`
+                            )
+                            .join("")}
+                        </span>`
+                      : ""
+                  }
+                </span>`
               : '<span>期限超過 0件</span>'
           }
           ${nextTask ? `<span>次: ${nextTask.due}</span>` : ""}
         </div>
       </div>
-      ${
-        this.overdueListOpen && overdueTasks.length
-          ? `<div class="overdue-task-list" aria-label="期限超過したタスク">
-              ${overdueTasks
-                .map(
-                  (task) => `<button class="overdue-task-item" type="button" data-overdue-task="${escapeAttribute(task.file.path)}">
-                    <span class="overdue-task-meta">
-                      <span class="action-type-badge action-type-${typeClass(task.type)}">${typeLabel(task.type)}</span>
-                      <time datetime="${task.due}">${task.due}</time>
-                    </span>
-                    <strong>${task.title}</strong>
-                  </button>`
-                )
-                .join("")}
-            </div>`
-          : ""
-      }
     `;
   }
 
@@ -1214,6 +1226,12 @@ class PlanningBoardView extends ItemView {
   }
 
   handleKeydown(event) {
+    if (event.key === "Escape" && this.overdueListOpen) {
+      event.preventDefault();
+      this.overdueListOpen = false;
+      void this.renderPreservingScroll();
+      return;
+    }
     if (![" ", "Enter"].includes(event.key) || !this.taskArchiveSelectionGroupKey) return;
     const card = event.target.closest?.("[data-task-archive-key]");
     if (!card) return;
@@ -1266,6 +1284,13 @@ class PlanningBoardView extends ItemView {
       if (!target) return;
       target.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
       target.focus({ preventScroll: true });
+      window.clearTimeout(this.focusClearTimer);
+      this.focusClearTimer = window.setTimeout(() => {
+        target.classList.remove("is-task-focused");
+        if (target.matches(".action-task-card")) target.removeAttribute("tabindex");
+        this.focusedTaskFilePath = null;
+        this.focusClearTimer = null;
+      }, 2500);
     });
   }
 
