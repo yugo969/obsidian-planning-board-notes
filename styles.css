@@ -337,7 +337,10 @@
 [data-sortable-group] .deadline-group-title-row,
 [data-sortable-task] {
   cursor: grab;
-  touch-action: none;
+  touch-action: pan-y;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 [data-sortable-group] .deadline-group-title-row:active,

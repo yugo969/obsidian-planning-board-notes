@@ -17,6 +17,8 @@ const DEFAULT_SYNC_SITE = "planning-board";
 const STATUSES = ["未着手", "進行中", "保留", "完了"];
 const TYPES = ["やること", "決めること", "確認すること"];
 const BOARD_GROUP_ORDER_KEY = "deadline-groups";
+const SORT_TOUCH_HOLD_DELAY = 420;
+const SORT_TOUCH_MOVE_TOLERANCE = 10;
 
 function statusClass(status) {
   return {
@@ -357,6 +359,7 @@ class PlanningBoardView extends ItemView {
     this.selectedTaskArchiveKeys = new Set();
     this.currentView = "deadline";
     this.activeDrag = null;
+    this.pendingTouchDrag = null;
     this.overdueListOpen = false;
     this.focusedTaskFilePath = null;
     this.focusClearTimer = null;
@@ -384,6 +387,13 @@ class PlanningBoardView extends ItemView {
     this.contentEl.addEventListener("pointermove", (event) => this.handlePointerMove(event));
     this.contentEl.addEventListener("pointerup", (event) => this.handlePointerUp(event));
     this.contentEl.addEventListener("pointercancel", (event) => this.handlePointerUp(event));
+    this.contentEl.addEventListener("touchstart", (event) => this.handleTouchStart(event), { passive: true });
+    this.contentEl.addEventListener("touchmove", (event) => this.handleTouchMove(event), { passive: false });
+    this.contentEl.addEventListener("touchend", (event) => this.handleTouchEnd(event), { passive: false });
+    this.contentEl.addEventListener("touchcancel", (event) => this.handleTouchEnd(event), { passive: false });
+    this.contentEl.addEventListener("contextmenu", (event) => {
+      if (this.pendingTouchDrag || this.activeDrag?.input === "touch") event.preventDefault();
+    });
     this.registerDomEvent(document, "click", (event) => {
       if (!this.overdueListOpen || event.target.closest?.(".overdue-popover-anchor")) return;
       this.overdueListOpen = false;
@@ -395,6 +405,7 @@ class PlanningBoardView extends ItemView {
 
   async onClose() {
     window.clearTimeout(this.focusClearTimer);
+    this.cancelPendingTouchDrag();
   }
 
   async render() {
@@ -1073,24 +1084,125 @@ class PlanningBoardView extends ItemView {
     );
   }
 
-  handlePointerDown(event) {
-    if (!this.canReorderBoard()) return;
-
-    const drag = this.sortableItemFromPointer(event.target);
-    if (!drag?.item || !drag.container) return;
-
-    event.preventDefault();
-    drag.item.setPointerCapture?.(event.pointerId);
-    this.activeDrag = { ...drag, ...this.createSortGhost(drag.item, event), pointerId: event.pointerId };
-    this.updateSortGhost(this.activeDrag, event);
+  activateSortDrag(drag, point, input = "pointer") {
+    this.activeDrag = { ...drag, ...this.createSortGhost(drag.item, point), input };
+    this.updateSortGhost(this.activeDrag, point);
     drag.item.classList.add("is-sort-dragging");
     drag.container.classList.add("is-sort-active");
     this.containerEl.addClass("is-sorting-board");
     document.body.classList.add("is-sorting-board");
   }
 
-  handlePointerMove(event) {
+  cancelPendingTouchDrag() {
+    if (!this.pendingTouchDrag) return;
+    window.clearTimeout(this.pendingTouchDrag.timer);
+    this.pendingTouchDrag = null;
+  }
+
+  touchByIdentifier(event, identifier) {
+    return [...Array.from(event.touches || []), ...Array.from(event.changedTouches || [])]
+      .find((touch) => touch.identifier === identifier);
+  }
+
+  handleTouchStart(event) {
+    if (!this.canReorderBoard() || this.activeDrag || this.pendingTouchDrag) return;
+    const touch = event.changedTouches?.[0];
+    const drag = this.sortableItemFromPointer(event.target);
+    if (!touch || !drag?.item || !drag.container) return;
+
+    this.pendingTouchDrag = {
+      ...drag,
+      identifier: touch.identifier,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      currentX: touch.clientX,
+      currentY: touch.clientY,
+    };
+    this.pendingTouchDrag.timer = window.setTimeout(() => {
+      if (!this.pendingTouchDrag) return;
+      const heldDrag = this.pendingTouchDrag;
+      this.pendingTouchDrag = null;
+      this.activateSortDrag(
+        heldDrag,
+        { clientX: heldDrag.currentX, clientY: heldDrag.currentY },
+        "touch"
+      );
+    }, SORT_TOUCH_HOLD_DELAY);
+  }
+
+  handleTouchMove(event) {
+    if (this.pendingTouchDrag) {
+      const touch = this.touchByIdentifier(event, this.pendingTouchDrag.identifier);
+      if (!touch) return;
+      this.pendingTouchDrag.currentX = touch.clientX;
+      this.pendingTouchDrag.currentY = touch.clientY;
+      if (
+        Math.hypot(
+          touch.clientX - this.pendingTouchDrag.startX,
+          touch.clientY - this.pendingTouchDrag.startY
+        ) > SORT_TOUCH_MOVE_TOLERANCE
+      ) {
+        this.cancelPendingTouchDrag();
+      }
+      return;
+    }
+
+    if (this.activeDrag?.input !== "touch") return;
+    const touch = this.touchByIdentifier(event, this.activeDrag.identifier);
+    if (!touch) return;
+    event.preventDefault();
+    const point = { clientX: touch.clientX, clientY: touch.clientY };
+    this.updateSortGhost(this.activeDrag, point);
+    const before = this.itemBeforePointer(
+      this.activeDrag.container,
+      this.activeDrag.type,
+      touch.clientX,
+      touch.clientY,
+      this.activeDrag.item
+    );
+    this.activeDrag.container.insertBefore(this.activeDrag.item, before || null);
+  }
+
+  async finishSortDrag() {
     if (!this.activeDrag) return;
+    const drag = this.activeDrag;
+    this.activeDrag = null;
+    drag.ghost.remove();
+    drag.item.classList.remove("is-sort-dragging");
+    drag.container.classList.remove("is-sort-active");
+    this.containerEl.removeClass("is-sorting-board");
+    document.body.classList.remove("is-sorting-board");
+    await this.saveDraggedOrder(drag);
+    await this.renderPreservingScroll();
+  }
+
+  async handleTouchEnd(event) {
+    if (this.pendingTouchDrag) {
+      const ended = Array.from(event.changedTouches || [])
+        .some((touch) => touch.identifier === this.pendingTouchDrag.identifier);
+      if (ended) this.cancelPendingTouchDrag();
+    }
+    if (this.activeDrag?.input !== "touch") return;
+    const ended = Array.from(event.changedTouches || [])
+      .some((touch) => touch.identifier === this.activeDrag.identifier);
+    if (!ended) return;
+    event.preventDefault();
+    await this.finishSortDrag();
+  }
+
+  handlePointerDown(event) {
+    if (!this.canReorderBoard() || event.pointerType === "touch") return;
+
+    const drag = this.sortableItemFromPointer(event.target);
+    if (!drag?.item || !drag.container) return;
+
+    event.preventDefault();
+    drag.item.setPointerCapture?.(event.pointerId);
+    this.activateSortDrag({ ...drag, pointerId: event.pointerId }, event);
+  }
+
+  handlePointerMove(event) {
+    if (!this.activeDrag || this.activeDrag.input === "touch") return;
     event.preventDefault();
     this.updateSortGhost(this.activeDrag, event);
     const before = this.itemBeforePointer(
@@ -1104,18 +1216,10 @@ class PlanningBoardView extends ItemView {
   }
 
   async handlePointerUp(event) {
-    if (!this.activeDrag) return;
+    if (!this.activeDrag || this.activeDrag.input === "touch") return;
     event.preventDefault();
-    const drag = this.activeDrag;
-    this.activeDrag = null;
-    drag.item.releasePointerCapture?.(drag.pointerId);
-    drag.ghost.remove();
-    drag.item.classList.remove("is-sort-dragging");
-    drag.container.classList.remove("is-sort-active");
-    this.containerEl.removeClass("is-sorting-board");
-    document.body.classList.remove("is-sorting-board");
-    await this.saveDraggedOrder(drag);
-    await this.renderPreservingScroll();
+    this.activeDrag.item.releasePointerCapture?.(this.activeDrag.pointerId);
+    await this.finishSortDrag();
   }
 
   async handleChange(event) {
